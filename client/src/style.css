@@ -1,0 +1,262 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #9fc4e8;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+#app,
+#app canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+#map-box {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+#minimap {
+  width: 180px;
+  height: 180px;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.5));
+}
+
+#player-name {
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.03em;
+}
+
+#stats {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  font: 13px/1.5 ui-monospace, Menlo, monospace;
+  white-space: pre;
+}
+
+#controls {
+  position: absolute;
+  bottom: 12px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+#overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 20, 35, 0.55);
+  color: #fff;
+}
+
+#overlay.hidden {
+  display: none;
+}
+
+.panel {
+  width: min(360px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 28px;
+  border-radius: 14px;
+  background: rgba(15, 22, 35, 0.85);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+}
+
+.panel h1 {
+  margin: 0 0 4px;
+  font-size: 28px;
+  text-align: center;
+}
+
+.panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+.panel input[type='text'],
+.panel input:not([type]) {
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 16px;
+}
+
+.panel button {
+  padding: 12px;
+  border: 0;
+  border-radius: 8px;
+  background: #e0393e;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.panel button:hover {
+  background: #f04a4f;
+}
+
+.keys {
+  display: grid;
+  gap: 3px;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.panel select {
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background: #1c2536;
+  color: #fff;
+  font-size: 14px;
+}
+
+.panel label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+#notice {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: rgba(15, 22, 35, 0.9);
+  color: #fff;
+  font-size: 14px;
+  pointer-events: none;
+}
+
+#notice.hidden,
+#crash.hidden {
+  display: none;
+}
+
+#crash {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(40, 10, 10, 0.8);
+  color: #fff;
+  z-index: 10;
+}
+
+#crash pre {
+  max-height: 40vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 10px;
+  border-radius: 6px;
+}
+
+#charge {
+  position: fixed;
+  left: 50%;
+  bottom: 60px;
+  transform: translateX(-50%);
+  width: min(320px, calc(100vw - 32px));
+  pointer-events: none;
+  color: #fff;
+  text-align: center;
+  font-weight: 700;
+  font-size: 14px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+#charge.hidden {
+  display: none;
+}
+
+#charge-bar {
+  position: relative;
+  height: 14px;
+  border-radius: 7px;
+  overflow: hidden;
+  background: rgba(15, 22, 35, 0.75);
+  border: 2px solid rgba(255, 255, 255, 0.8);
+}
+
+#charge-bar .zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+#charge-zone-ramp {
+  background: rgba(240, 192, 64, 0.18);
+}
+
+#charge-zone-max {
+  background: rgba(63, 212, 107, 0.35);
+  border-left: 2px solid #3fd46b;
+  border-right: 2px solid #3fd46b;
+}
+
+#charge-zone-over {
+  background: rgba(224, 57, 62, 0.2);
+}
+
+#charge-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  opacity: 0.9;
+}
+
+#charge-label {
+  margin-top: 6px;
+}
+
+#speedlines,
+#vignette {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+#vignette {
+  opacity: 0;
+  background: radial-gradient(ellipse at center, transparent 45%, rgba(5, 10, 20, 0.85) 100%);
+}

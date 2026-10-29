@@ -1,0 +1,17 @@
+{
+  "name": "swingfight-game",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "shared",
+    "client"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w client",
+    "build": "npm run build -w client",
+    "typecheck": "tsc -p client --noEmit && tsc -p shared --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

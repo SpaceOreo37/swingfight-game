@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The Swingfight Game</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="vignette"></div>
+    <canvas id="speedlines"></canvas>
+    <div id="hud">
+      <div id="map-box">
+        <canvas id="minimap"></canvas>
+        <div id="player-name"></div>
+      </div>
+      <div id="stats"></div>
+      <div id="controls">
+        WASD move · Shift sprint · Space jump · Right-click (in air) swing to the marker · Tab thwip · C + right-click: launch (ground) / zip (air) · Run into walls to climb · V camera · R respawn · Esc menu
+      </div>
+    </div>
+    <div id="overlay">
+      <div class="panel">
+        <h1>The Swingfight Game</h1>
+        <label>
+          Your name
+          <input id="name-input" maxlength="16" placeholder="Enter a name" autocomplete="off" />
+        </label>
+        <label>
+          Mouse sensitivity <span id="sens-value">1.0</span>
+          <input id="sens-input" type="range" min="0.3" max="3" step="0.1" value="1" />
+        </label>
+        <label>
+          Camera
+          <select id="view-input">
+            <option value="third">Third person</option>
+            <option value="first">First person</option>
+          </select>
+        </label>
+        <label>
+          Graphics quality
+          <select id="quality-input">
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low (no shadows)</option>
+          </select>
+        </label>
+        <label class="check">
+          <input id="raw-input" type="checkbox" checked />
+          Raw mouse input (turn off if looking around feels choppy)
+        </label>
+        <button id="play-btn">Play</button>
+        <div class="keys">
+          <div><b>WASD</b> move</div>
+          <div><b>Shift</b> sprint</div>
+          <div><b>Space</b> jump · jump off a swing</div>
+          <div><b>Right-click (hold, in the air)</b> web swing to the marker</div>
+          <div><b>Tab</b> web thwip toward where you look</div>
+          <div><b>C + right-click</b> on the ground: charge a launch (hold 3–4s for max, release to fly) · in the air: zip to the marker</div>
+          <div><b>Walls</b> run/swing into one to stick: push toward it to climb, sideways to run, away to drop, Space to wall-jump</div>
+          <div><b>Left-click</b> attack (coming soon)</div>
+          <div><b>V</b> switch first / third person · <b>R</b> respawn · <b>Esc</b> menu</div>
+        </div>
+      </div>
+    </div>
+    <div id="charge" class="hidden">
+      <div id="charge-bar">
+        <div id="charge-zone-ramp" class="zone"></div>
+        <div id="charge-zone-max" class="zone"></div>
+        <div id="charge-zone-over" class="zone"></div>
+        <div id="charge-fill"></div>
+      </div>
+      <div id="charge-label"></div>
+    </div>
+    <div id="notice" class="hidden"></div>
+    <div id="crash" class="hidden">
+      <div class="panel">
+        <h1>Something broke</h1>
+        <p>Send this to the developer:</p>
+        <pre id="crash-text"></pre>
+        <button onclick="location.reload()">Reload</button>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

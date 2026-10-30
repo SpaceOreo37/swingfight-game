@@ -30,7 +30,13 @@ export class Minimap {
    * @param camYaw camera yaw (map rotates so the view direction is up)
    * @param playerYaw direction the character faces
    */
-  draw(x: number, z: number, camYaw: number, playerYaw: number): void {
+  draw(
+    x: number,
+    z: number,
+    camYaw: number,
+    playerYaw: number,
+    others: { x: number; z: number; color: number }[] = [],
+  ): void {
     const { ctx, size } = this;
     const r = size / 2;
     const scale = r / VIEW_RADIUS;
@@ -48,6 +54,24 @@ export class Minimap {
     ctx.rotate(camYaw);
     ctx.scale(scale, scale);
     ctx.drawImage(this.map, -this.halfX - x, -this.halfZ - z);
+    // Other players: colored dots (clamped to the rim when far away).
+    for (const o of others) {
+      let dx = o.x - x;
+      let dz = o.z - z;
+      const d = Math.hypot(dx, dz);
+      const max = VIEW_RADIUS * 0.92;
+      if (d > max) {
+        dx *= max / d;
+        dz *= max / d;
+      }
+      ctx.beginPath();
+      ctx.arc(dx, dz, size * 0.03 / scale, 0, Math.PI * 2);
+      ctx.fillStyle = `#${o.color.toString(16).padStart(6, '0')}`;
+      ctx.fill();
+      ctx.lineWidth = (size * 0.008) / scale;
+      ctx.strokeStyle = '#fff';
+      ctx.stroke();
+    }
     ctx.restore();
 
     // Player arrow.

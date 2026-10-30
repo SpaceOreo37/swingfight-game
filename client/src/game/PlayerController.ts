@@ -66,6 +66,8 @@ export class PlayerController {
   /** Where the last thwip web hit (for drawing) and how long ago it fired. */
   readonly thwipPoint = new THREE.Vector3();
   thwipAge = Infinity;
+  /** Increments on every thwip (the network sends an event when it changes). */
+  thwipCount = 0;
   private thwipCooldown = 0;
 
   /** Normal of the wall you're on (valid while state === 'wall'). Points away from the wall. */
@@ -88,6 +90,8 @@ export class PlayerController {
 
   /** Seconds the launch has been charging (valid while state === 'charge'). */
   chargeTime = 0;
+  /** Number of point launches (for tests / stats). */
+  pointLaunches = 0;
   /** Power (0..1) of the last launch, for the HUD. */
   lastLaunchPower = 0;
   /** The building the marker is on, and whether it's on that building's roof edge. */
@@ -99,6 +103,8 @@ export class PlayerController {
   private readonly zipDest = new THREE.Vector3();
   private readonly zipNormal = new THREE.Vector3();
   private zipLand = false;
+  /** Space was pressed during this zip: launch off the edge on arrival. */
+  private zipLaunchQueued = false;
   private zipTime = 0;
   /** Set on a swing press; fires as soon as you're airborne with a target. */
   private firePending = false;
@@ -165,7 +171,7 @@ export class PlayerController {
     if (this.state === 'charge') {
       this.chargeStep(inp, dt);
     } else if (this.state === 'zip') {
-      this.zipStep(dt);
+      this.zipStep(inp, dt);
     } else if (this.state === 'swing') {
       this.swingStep(inp, dt);
     } else if (this.state === 'wall') {
@@ -351,6 +357,7 @@ export class PlayerController {
     this.state = 'air';
     this.thwipCooldown = THWIP.cooldown;
     this.thwipAge = 0;
+    this.thwipCount++;
     this.jolt += 0.3;
 
     // Where the strand lands: the first building along the aim, or just far out.
@@ -558,11 +565,14 @@ export class PlayerController {
       else this.zipDest.x += Math.sign((b.minX + b.maxX) / 2 - t.x) * shift;
     }
     this.zipTime = 0;
+    this.zipLaunchQueued = false;
     this.state = 'zip';
   }
 
-  private zipStep(dt: number): void {
+  private zipStep(inp: StepInput, dt: number): void {
     this.zipTime += dt;
+    // Space at any point during a zip to an edge = point launch on arrival.
+    if (inp.jumpPressed && this.zipLand) this.zipLaunchQueued = true;
     _tmp.subVectors(this.zipDest, this.pos);
     const d = _tmp.length();
     if (d < 0.8 || this.zipTime > LAUNCH.zipMaxTime) {
@@ -579,7 +589,24 @@ export class PlayerController {
   private finishZip(): void {
     const n = this.zipNormal;
     this.jolt += 0.25;
-    if (this.zipLand) {
+    if (this.zipLand && this.zipLaunchQueued) {
+      // Point launch: fling up and onward the way we were zipping (over the edge).
+      let fx = this.vel.x;
+      let fz = this.vel.z;
+      const h = Math.hypot(fx, fz);
+      if (h > 3) {
+        fx /= h;
+        fz /= h;
+      } else {
+        fx = -n.x;
+        fz = -n.z;
+      }
+      this.vel.set(fx * LAUNCH.pointLaunchForward, LAUNCH.pointLaunchUp, fz * LAUNCH.pointLaunchForward);
+      this.state = 'air';
+      this.wallCooldown = LAUNCH.noWallGrab;
+      this.jolt += 0.45;
+      this.pointLaunches++;
+    } else if (this.zipLand) {
       // Pop up and over the edge onto the roof.
       this.vel.set(-n.x * LAUNCH.zipPopIn, LAUNCH.zipPopUp, -n.z * LAUNCH.zipPopIn);
       this.state = 'air';

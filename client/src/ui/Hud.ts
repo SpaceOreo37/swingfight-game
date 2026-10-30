@@ -5,6 +5,7 @@ const SENS_KEY = 'swingfight.sensitivity';
 const QUALITY_KEY = 'swingfight.quality';
 const RAW_KEY = 'swingfight.rawMouse';
 const VIEW_KEY = 'swingfight.view';
+const ROOM_KEY = 'swingfight.room';
 
 export type Quality = 'high' | 'medium' | 'low';
 export type View = 'third' | 'first';
@@ -15,6 +16,7 @@ export interface Settings {
   quality: Quality;
   rawMouse: boolean;
   view: View;
+  room: string;
 }
 
 /** Seconds of charge that fill the whole meter. */
@@ -47,6 +49,7 @@ export class Hud {
   private readonly qualityInput = document.getElementById('quality-input') as HTMLSelectElement;
   private readonly rawInput = document.getElementById('raw-input') as HTMLInputElement;
   private readonly viewInput = document.getElementById('view-input') as HTMLSelectElement;
+  private readonly roomInput = document.getElementById('room-input') as HTMLInputElement;
   private readonly playBtn = document.getElementById('play-btn') as HTMLButtonElement;
   private readonly nameLabel = document.getElementById('player-name')!;
   readonly minimapCanvas = document.getElementById('minimap') as HTMLCanvasElement;
@@ -75,6 +78,13 @@ export class Hud {
     this.qualityInput.value = q === 'medium' || q === 'low' ? q : 'high';
     this.rawInput.checked = load(RAW_KEY) !== 'false';
     this.viewInput.value = load(VIEW_KEY) === 'first' ? 'first' : 'third';
+    // A ?room=xyz link pre-fills the room, so you can send friends a direct link.
+    this.roomInput.value = new URLSearchParams(location.search).get('room') ?? load(ROOM_KEY) ?? '';
+  }
+
+  /** Name (as the server made it unique) and room, under the minimap. */
+  setPlayerLabel(name: string, room: string): void {
+    this.nameLabel.textContent = room === 'main' ? name : `${name} · ${room}`;
   }
 
   /** Keep the menu in sync when the view is switched in-game (V). */
@@ -101,6 +111,7 @@ export class Hud {
       save(QUALITY_KEY, this.qualityInput.value);
       save(RAW_KEY, String(this.rawInput.checked));
       save(VIEW_KEY, this.viewInput.value);
+      save(ROOM_KEY, this.roomInput.value.trim());
       this.nameLabel.textContent = name;
       this.showNotice(null);
       fn({
@@ -109,12 +120,15 @@ export class Hud {
         quality: this.quality,
         rawMouse: this.rawInput.checked,
         view: this.viewInput.value as View,
+        room: this.roomInput.value.trim(),
       });
     };
     this.playBtn.addEventListener('click', start);
-    this.nameInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') start();
-    });
+    for (const input of [this.nameInput, this.roomInput]) {
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') start();
+      });
+    }
   }
 
   setPlaying(playing: boolean): void {

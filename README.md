@@ -6,8 +6,11 @@ Browser-based open-city web-swinging game, built in small steps. Mechanics first
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173 (also on your LAN IP)
+npm run dev        # game server (:3001) + game (:5173), both auto-reload
+npm test           # server + networking tests
 ```
+
+Open http://localhost:5173. Production-style (one port serves everything): `npm start` → http://localhost:3001.
 
 Enter a name, click **Play**.
 
@@ -20,6 +23,7 @@ Enter a name, click **Play**.
 | Tab | web thwip: yank toward where you're looking (keeps your speed + a little) |
 | C + right-click (ground) | charge a launch: web planted, meter fills. Release right-click or C to launch, mostly straight up. Power: 0–1s weak, 1–3s ramps up, **3–4s max**, over 4s drops to half |
 | C + right-click (air / wall) | zip to the marker point: lands you on top of a roof edge, or sticks you to the wall at a corner partway up |
+| Space during a zip to a roof edge | point launch: instead of landing, get flung up and onward off the edge |
 | Walls | run, jump or swing into one to stick. Push toward it = climb, sideways = run along, away = drop, Space = wall-jump. You vault onto the roof at the top |
 | V | switch first / third person (also in the menu) |
 | Left-click | attack (reserved for combat) |
@@ -35,6 +39,8 @@ shared/   Code both the browser and a future server use
   city.ts        Seeded city generator (same seed = same map for everyone)
   collision.ts   Box collision + raycasts over a spatial grid
   constants.ts   All movement + swing tuning numbers (PHYS, SWING)
+  protocol.ts    Every network message + validation (bump PROTOCOL_VERSION on changes)
+server/   Node WebSocket game server (rooms, validation, 20 Hz broadcast) + tests
 client/   The browser game (Vite + TypeScript + Three.js)
   game/Game.ts              Main loop: fixed 60Hz physics, render, HUD, dynamic resolution
   game/PlayerController.ts  Movement states: ground / air / swing
@@ -43,6 +49,9 @@ client/   The browser game (Vite + TypeScript + Three.js)
   game/CityRenderer.ts      City meshes, merged per 128m chunk
   game/Avatar.ts, WebLine.ts  Placeholder character + web strand
   ui/Hud.ts, ui/Minimap.ts  Start screen, stats, rotating minimap
+  net/Network.ts            Connection, reconnect, clock sync
+  net/SnapshotBuffer.ts     Smooth interpolation of other players (tested)
+  net/RemotePlayers.ts      Drawing other players, their webs and name tags
 ```
 
 ## How swinging works
@@ -77,6 +86,31 @@ Plan for when the city gets dense (props, cars, people, detailed buildings):
 - **Compressed assets** when real models arrive: glTF with meshopt/Draco geometry and KTX2 textures (smaller downloads and less GPU memory).
 - **Shadow budget:** a tight shadow area around the player, with baked lighting for the far city.
 
+## Multiplayer
+
+**Playing with friends**
+- Everyone in the same **room** sees each other. Type a room name in the menu, or send a link like `http://<your-ip>:5173/?room=crew`.
+- **Same Wi-Fi:** friends open `http://<your computer's IP>:5173` (shown as "Network" when `npm run dev` starts).
+- **Over the internet:** run a tunnel to port 5173 (e.g. `cloudflared tunnel --url http://localhost:5173`) and share its link, or deploy the server (`npm start` serves the game and the socket on one port).
+
+**How it works**
+- **Client-authoritative movement, server-checked.** Each client simulates itself and sends its state 20×/s. The server rejects malformed or impossible states (outside the city, faster than 120 m/s) and broadcasts each room at a fixed 20 Hz.
+- **Smooth remote players.** Clients draw others ~110 ms in the past, blending snapshots with a curve that matches their velocity (`client/src/net/SnapshotBuffer.ts`). Teleports snap, late packets get a brief prediction, and a clock sync (ping/pong, lowest-RTT samples) keeps timing aligned.
+- **Events** (`NetEvent`) carry one-shot effects like thwips. Attacks will use the same channel.
+- **Combat-ready:** the server keeps 1 s of position history per player for lag-compensated hit checks later.
+- **Resilience:**
+  - auto-reconnect with backoff
+  - "refresh" message if versions differ
+  - per-player rate limiting (flooders get kicked)
+  - idle timeout
+  - rooms are isolated, and a crash in one message handler can't take the server down
+- **Name tags** float above other players (never your own), keep a readable size at any distance, and show through walls so friends are easy to find (`THROUGH_WALLS` in `Nametag.ts`).
+
+**Rules for changing it (so nothing breaks)**
+1. All messages live in `shared/src/protocol.ts`. **Change a message shape → bump `PROTOCOL_VERSION`.**
+2. Every incoming message goes through `parseClientMessage` / `parseServerMessage`. Add validation for new fields there.
+3. Add a test in `server/test/server.test.ts` for any new message, and run `npm test`.
+
 ## Game feel
 
 - **Camera shake:** a rumble that grows with speed, plus kicks from web catches, launches, thwips, wall impacts, hard landings and zip arrivals (`jolt` in the controller → `CameraRig.addTrauma`).
@@ -102,7 +136,7 @@ Generated from a seed in a few milliseconds, with no downloads:
 1. ✅ **Basics:** project setup, city map, walk/sprint/jump, camera
 2. ✅ **Web swinging, name, minimap, perf pass** ← test & tune this
 3. ✅ **Bigger, more realistic city + wall running/climbing** (zip to point, corner wraps: later)
-4. **Multiplayer:** Node WebSocket server, see friends move + their names
+4. ✅ **Multiplayer foundation:** rooms, smooth remote players, name tags, minimap dots, tests
 5. **Combat (PvP):** melee on left-click, dodge, web shots, health, server-checked hits
 6. **Feel polish:** animations, camera effects, gamepad, sound
 7. **Graphics upgrade:** real models, lighting, post-processing

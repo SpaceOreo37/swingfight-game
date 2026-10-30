@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CityCollider, WORLD_SEED, generateCity, type CityLayout } from '@game/shared';
+import { CityCollider, NET, NET_STATES, WORLD_SEED, generateCity, type CityLayout, type NetState } from '@game/shared';
 import { Input } from './Input';
 import { PlayerController } from './PlayerController';
 import { CameraRig } from './CameraRig';
@@ -8,6 +8,9 @@ import { WebLine } from './WebLine';
 import { SwingMarker } from './SwingMarker';
 import { FirstPersonArms } from './FirstPersonArms';
 import { SpeedLines } from '../ui/SpeedLines';
+import { Network, type NetStatus } from '../net/Network';
+import { RemotePlayers } from '../net/RemotePlayers';
+import { Nametag } from './Nametag';
 import { buildCity } from './CityRenderer';
 import { Hud, type Quality, type View } from '../ui/Hud';
 import { Minimap } from '../ui/Minimap';
@@ -50,6 +53,13 @@ export class Game {
   private readonly arms = new FirstPersonArms(0xd23a3a);
   private readonly speedLines = new SpeedLines();
   private readonly thwipFrom = new THREE.Vector3();
+
+  // Multiplayer.
+  private readonly remotes: RemotePlayers;
+  private readonly net: Network;
+  private sendTimer = 0;
+  private lastThwipCount = 0;
+  private readonly netState: NetState = { p: [0, 0, 0], v: [0, 0, 0], y: 0, s: 0 };
 
   private accumulator = 0;
   private readonly renderPos = new THREE.Vector3();
@@ -97,6 +107,21 @@ export class Game {
     this.avatar = new Avatar(0xd23a3a);
     this.scene.add(this.avatar.root, this.web.mesh, this.thwipWeb.mesh, this.zipWeb.mesh, this.marker.sprite);
 
+    this.remotes = new RemotePlayers(this.scene);
+    this.net = new Network({
+      welcome: (me, players, room) => {
+        this.remotes.reset(players);
+        this.avatar.setColor(me.color);
+        this.arms.setColor(me.color);
+        this.hud.setPlayerLabel(me.name, room);
+      },
+      join: (p) => this.remotes.add(p),
+      leave: (id) => this.remotes.remove(id),
+      state: (id, t, s) => this.remotes.pushState(id, t, s),
+      event: (id, _t, e) => this.remotes.event(id, e),
+      status: (status, message) => this.onNetStatus(status, message),
+    });
+
     this.rig = new CameraRig(this.camera, collider);
     // First-person arms ride on the camera, so the camera must be in the scene.
     this.camera.add(this.arms.root);
@@ -113,6 +138,7 @@ export class Game {
       this.input.rawMouse = settings.rawMouse;
       this.applyQuality(settings.quality);
       this.setView(settings.view);
+      this.net.connect(settings.name, settings.room);
       this.input.requestLock();
     });
     this.input.onLockFailed = () =>
@@ -157,6 +183,37 @@ export class Game {
     this.hud.setView(view);
   }
 
+  private onNetStatus(status: NetStatus, message?: string): void {
+    if (status === 'rejected') this.hud.showNotice(message ?? 'The server refused the connection.');
+    else if (status === 'connecting' && this.net.me) {
+      // Lost an existing connection: others vanish until we're back.
+      this.remotes.reset([]);
+      this.hud.showNotice('Connection lost. Reconnecting…');
+    } else if (status === 'online') this.hud.showNotice(null);
+  }
+
+  /** Send our movement ~20 times a second, plus one-shot events like thwips. */
+  private sendNetwork(dt: number): void {
+    if (this.net.status !== 'online') return;
+    const p = this.player;
+    if (p.thwipCount !== this.lastThwipCount) {
+      this.lastThwipCount = p.thwipCount;
+      this.net.sendEvent({ k: 'thwip', to: [p.thwipPoint.x, p.thwipPoint.y, p.thwipPoint.z] });
+    }
+    this.sendTimer -= dt;
+    if (this.sendTimer > 0) return;
+    this.sendTimer += 1 / NET.sendRate;
+    if (this.sendTimer < 0) this.sendTimer = 0;
+    const s = this.netState;
+    s.p = [p.pos.x, p.pos.y, p.pos.z];
+    s.v = [p.vel.x, p.vel.y, p.vel.z];
+    s.y = p.yaw;
+    s.s = NET_STATES.indexOf(p.state);
+    s.a = p.state === 'swing' || p.state === 'charge' || p.state === 'zip' ? [p.anchor.x, p.anchor.y, p.anchor.z] : undefined;
+    s.w = p.state === 'wall' ? [p.wallNormal.x, p.wallNormal.z] : undefined;
+    this.net.sendState(s);
+  }
+
   private respawn(): void {
     const s = this.city.spawn;
     this.player.teleport(s.x, s.y + 1, s.z);
@@ -185,10 +242,14 @@ export class Game {
    * builds its shader mid-swing and the game hitches.
    */
   private precompileShaders(): void {
+    const warmTag = new Nametag('warmup', 0xffffff);
+    this.scene.add(warmTag.sprite);
     const hidden = [this.web.mesh, this.thwipWeb.mesh, this.zipWeb.mesh, this.marker.sprite, this.arms.root];
     hidden.forEach((o) => (o.visible = true));
     this.renderer.compile(this.scene, this.camera);
     hidden.forEach((o) => (o.visible = false));
+    warmTag.sprite.removeFromParent();
+    warmTag.dispose();
   }
 
   private frame(): void {
@@ -309,7 +370,10 @@ export class Game {
     this.sun.position.set(this.renderPos.x + 240, this.renderPos.y + 400, this.renderPos.z + 160);
     this.sun.target.position.copy(this.renderPos);
 
-    this.minimap.draw(this.renderPos.x, this.renderPos.z, this.rig.yaw, player.yaw);
+    this.sendNetwork(dt);
+    this.remotes.update(this.net.serverNow(), dt, this.camera);
+
+    this.minimap.draw(this.renderPos.x, this.renderPos.z, this.rig.yaw, player.yaw, this.remotes.markers());
     this.renderer.render(this.scene, this.camera);
 
     // Stats: average FPS and the worst frame recently (spikes = hitches).
@@ -327,8 +391,22 @@ export class Game {
         state: player.state,
         chain: player.chain,
         release: releaseLabel(player.lastReleaseQuality),
+        net: this.netLabel(),
       });
       this.worstFrameMs = 0;
+    }
+  }
+
+  private netLabel(): string {
+    switch (this.net.status) {
+      case 'online':
+        return `${this.remotes.count + 1} in "${this.net.room}" · ${Math.round(this.net.rtt)} ms`;
+      case 'connecting':
+        return 'connecting…';
+      case 'rejected':
+        return 'refused';
+      default:
+        return 'offline';
     }
   }
 

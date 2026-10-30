@@ -190,6 +190,12 @@ export const LAUNCH = {
   /** Pop at the end of a zip that lands on a roof: up and inward (m/s). */
   zipPopUp: 7,
   zipPopIn: 7,
+  /**
+   * Point launch: press Space during a zip to a roof edge and you get flung
+   * up and onward from the edge instead of landing (m/s).
+   */
+  pointLaunchUp: 32,
+  pointLaunchForward: 16,
 };
 
 /** Launch power (0..1) for a charge held this many seconds. */

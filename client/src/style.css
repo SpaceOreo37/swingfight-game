@@ -102,7 +102,8 @@ body {
 }
 
 .panel input[type='text'],
-.panel input:not([type]) {
+.panel input:not([type]),
+.panel #room-input {
   padding: 10px 12px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 8px;

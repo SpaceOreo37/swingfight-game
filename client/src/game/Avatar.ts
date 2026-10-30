@@ -18,9 +18,10 @@ export class Avatar {
   private readonly body = new THREE.Group();
   private readonly rightArm: THREE.Mesh;
   private readonly leftArm: THREE.Mesh;
+  private readonly suit: THREE.MeshStandardMaterial;
 
   constructor(color: number) {
-    const suit = new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
+    const suit = (this.suit = new THREE.MeshStandardMaterial({ color, roughness: 0.6 }));
     const dark = new THREE.MeshStandardMaterial({ color: 0x1d2433, roughness: 0.7 });
     this.body.position.y = -CENTER;
     this.root.add(this.body);
@@ -45,6 +46,11 @@ export class Avatar {
     arm.translate(0, -0.3, 0);
     this.leftArm = add(arm, suit, -0.38, 1.45, 0);
     this.rightArm = add(arm, suit, 0.38, 1.45, 0);
+  }
+
+  /** Change the suit color (the server assigns each player one). */
+  setColor(color: number): void {
+    this.suit.color.setHex(color);
   }
 
   /**

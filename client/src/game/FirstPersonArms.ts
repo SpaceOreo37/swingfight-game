@@ -35,9 +35,10 @@ export class FirstPersonArms {
   private time = 0;
   /** Extra reach for the punch-out (0..1). */
   private leftPunch = 0;
+  private readonly suit: THREE.MeshStandardMaterial;
 
   constructor(color: number) {
-    const suit = new THREE.MeshStandardMaterial({ color, roughness: 0.55, depthTest: false, depthWrite: false });
+    const suit = (this.suit = new THREE.MeshStandardMaterial({ color, roughness: 0.55, depthTest: false, depthWrite: false }));
     const glove = new THREE.MeshStandardMaterial({ color: 0x1d2433, roughness: 0.6, depthTest: false, depthWrite: false });
     const make = (side: number) => {
       const shoulder = new THREE.Group();
@@ -59,6 +60,10 @@ export class FirstPersonArms {
     this.leftHand = l.hand;
     this.rightHand = r.hand;
     this.root.visible = false;
+  }
+
+  setColor(color: number): void {
+    this.suit.color.setHex(color);
   }
 
   /** World position of the right (web-swinging) hand. */

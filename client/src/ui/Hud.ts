@@ -1,3 +1,4 @@
+import { Keybinds } from './Keybinds';
 import type { GameMode } from '@game/shared';
 import { LAUNCH, launchPower } from '@game/shared';
 
@@ -107,6 +108,7 @@ export class Hud {
     this.roomInput.value = new URLSearchParams(location.search).get('room') ?? load(ROOM_KEY) ?? '';
 
     this.inviteBtn.addEventListener('click', () => this.copyInvite());
+    new Keybinds(document.getElementById('keybinds')!, document.getElementById('controls')!);
     document.body.classList.add('at-home');
     this.pollServer();
   }

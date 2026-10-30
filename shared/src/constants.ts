@@ -141,7 +141,7 @@ export const THWIP = {
   /** Even from a standstill, you leave at least this fast (horizontally). */
   minSpeed: 14,
   /** Seconds between thwips. */
-  cooldown: 5,
+  cooldown: 2.5,
   /** Only works at least this high above the street (m). */
   minHeight: 10,
   /** How far the web reaches if it doesn't hit a building (just for the visual). */

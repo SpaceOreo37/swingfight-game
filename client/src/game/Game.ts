@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CityCollider, NET, NET_STATES, THWIP, WORLD_SEED, generateCity, type CityLayout, type NetState } from '@game/shared';
 import { Input } from './Input';
+import { bindingName } from './Controls';
 import { PlayerController } from './PlayerController';
 import { CameraRig } from './CameraRig';
 import { Avatar } from './Avatar';
@@ -282,7 +283,7 @@ export class Game {
     if (input.consume('view')) {
       const next = this.rig.mode === 'first' ? 'third' : 'first';
       this.setView(next);
-      this.hud.showNotice(next === 'first' ? 'First person (V to switch)' : 'Third person (V to switch)');
+      this.hud.showNotice(`${next === 'first' ? 'First' : 'Third'} person (${bindingName('view')} to switch)`);
       this.noticeTimer = 1.5;
     }
     if (this.noticeTimer > 0 && (this.noticeTimer -= dt) <= 0) this.hud.showNotice(null);

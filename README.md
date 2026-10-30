@@ -20,7 +20,7 @@ Enter a name, click **Play**.
 | Shift | sprint |
 | Space | jump · jump off a swing for a boost |
 | Right-click (hold) | web swing (in the air) at the marker. Keep holding to chain swings |
-| Tab | web thwip: horizontal yank toward where you're looking (keeps your horizontal speed + a little, never lifts you). Only 10 m+ above the street, once every 5 s |
+| Tab | web thwip: horizontal yank toward where you're looking (keeps your horizontal speed + a little, never lifts you). Only 10 m+ above the street, once every 2.5 s |
 | C + right-click (ground) | charge a launch: web planted, meter fills. Release right-click or C to launch toward the web point (aimed with gravity so the arc reaches it; weaker charges fall short). Power: 0–1s weak, 1–3s ramps up, **3–4s max**, over 4s drops to half |
 | C + right-click (air / wall) | zip to the marker point: lands you on top of a roof edge, or sticks you to the wall at a corner partway up |
 | Space during a zip to a roof edge | point launch: instead of landing, get flung up and onward off the edge |

@@ -1,4 +1,4 @@
-import { BINDINGS, type Action } from './Controls';
+import { binding, isBound, type Action } from './Controls';
 
 /**
  * Keyboard + mouse state. "Pressed" events are latched until something
@@ -23,13 +23,16 @@ export class Input {
       if (e.target instanceof HTMLInputElement) return; // typing a name
       if (!e.repeat) this.latched.add(e.code);
       this.held.add(e.code);
-      if (e.code === 'Space' || e.code === 'Tab') e.preventDefault(); // no page scroll / focus jumping
+      // Keys the game uses shouldn't also scroll the page, move focus, etc.
+      if (this.locked && isBound(e.code)) e.preventDefault();
+      else if (e.code === 'Space' || e.code === 'Tab') e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.held.delete(e.code));
     window.addEventListener('blur', () => this.held.clear());
 
     target.addEventListener('mousedown', (e) => {
       if (!this.locked) return;
+      if (e.button > 2) e.preventDefault(); // side buttons: no browser back/forward
       const code = `Mouse${e.button}`;
       this.held.add(code);
       this.latched.add(code);
@@ -89,13 +92,13 @@ export class Input {
 
   /** True while any key bound to the action is held. */
   down(action: Action): boolean {
-    return BINDINGS[action].some((c) => this.held.has(c));
+    return binding(action).some((c) => this.held.has(c));
   }
 
   /** True once per press of the action. */
   consume(action: Action): boolean {
     let hit = false;
-    for (const c of BINDINGS[action]) if (this.latched.delete(c)) hit = true;
+    for (const c of binding(action)) if (this.latched.delete(c)) hit = true;
     return hit;
   }
 

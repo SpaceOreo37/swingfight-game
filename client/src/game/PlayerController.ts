@@ -72,6 +72,14 @@ export class PlayerController {
   /** Where the last thwip web hit (for drawing) and how long ago it fired. */
   readonly thwipPoint = new THREE.Vector3();
   thwipAge = Infinity;
+  /** Thwip can fire right now (high enough, cooldown done). */
+  get thwipReady(): boolean {
+    return this.thwipCooldown === 0 && this.pos.y >= THWIP.minHeight;
+  }
+  /** Seconds until thwip is off cooldown. */
+  get thwipCooldownLeft(): number {
+    return this.thwipCooldown;
+  }
   /** Increments on every thwip (the network sends an event when it changes). */
   thwipCount = 0;
   private thwipCooldown = 0;
@@ -183,7 +191,8 @@ export class PlayerController {
 
     this.thwipCooldown = Math.max(0, this.thwipCooldown - dt);
     this.thwipAge += dt;
-    if (inp.thwipPressed && this.thwipCooldown === 0) this.thwip(inp.aimDir, inp.camYaw);
+    // Thwip only high up (no ground-level speed abuse), with a long cooldown.
+    if (inp.thwipPressed && this.thwipReady) this.thwip(inp.aimDir, inp.camYaw);
 
     if (this.state === 'swing' && !inp.swingHeld) this.releaseSwing(false);
     // Webs only fire in the air: jump first, then swing. A fresh press fires
@@ -364,11 +373,17 @@ export class PlayerController {
     // launch) = pure aim. Swinging fast blends in the physics spot so swings
     // stay smooth and fast.
     const aimW = inp.anchorHeld ? 1 : 1 - THREE.MathUtils.clamp((speed - 6) / 20, 0, SWING.physicsBlendMax);
-    const minY = this.pos.y + SWING.minAnchorHeight;
+    // Zipping (C held) can go to edges right in front of you, below you, and
+    // far away. Swinging needs points well above and a bit away from you.
+    const zipping = inp.anchorHeld;
+    const minH = zipping ? -SWING.zipMaxDrop : SWING.minAnchorHeight;
+    const minD = zipping ? SWING.zipMinDist : SWING.minDist;
+    const maxD = zipping ? SWING.zipMaxDist : SWING.maxDist;
+    const minY = this.pos.y + minH;
 
-    const R = SWING.maxDist;
+    const R = maxD;
     this.collider.query(
-      this.pos.x - R, this.pos.y + SWING.minAnchorHeight, this.pos.z - R,
+      this.pos.x - R, minY, this.pos.z - R,
       this.pos.x + R, this.pos.y + R, this.pos.z + R,
       _aimBoxes,
     );
@@ -376,10 +391,10 @@ export class PlayerController {
     let bestScore = Infinity;
     const had = this.hasTarget;
     const consider = () => {
-      if (_cand.y < this.pos.y + SWING.minAnchorHeight) return;
+      if (_cand.y < minY) return;
       _tmp.subVectors(_cand, this.pos);
       const d = _tmp.length();
-      if (d < SWING.minDist || d > SWING.maxDist) return;
+      if (d < minD || d > maxD) return;
       if (!inp.anchorHeld && _tmp.x * _dir.x + _tmp.z * _dir.z < 0) return; // behind (swinging)
       // Angle between the aim ray and this point.
       _tmp2.subVectors(_cand, _aimO);
@@ -392,8 +407,18 @@ export class PlayerController {
       if (score >= bestScore) return;
       // Must be able to see it: no building in the way.
       _tmp.divideScalar(d);
-      const hit = this.collider.raycast(this.pos.x, this.pos.y, this.pos.z, _tmp.x, _tmp.y, _tmp.z, d);
-      if (hit !== null && hit < d - 1) return;
+      if (zipping) {
+        // Line of sight from the chest, so edges below you (the roof you're over) count.
+        const oy = this.pos.y + 1.2;
+        _tmp2.set(_cand.x - this.pos.x, _cand.y - oy, _cand.z - this.pos.z);
+        const dc = _tmp2.length();
+        _tmp2.divideScalar(dc);
+        const hit = this.collider.raycast(this.pos.x, oy, this.pos.z, _tmp2.x, _tmp2.y, _tmp2.z, dc);
+        if (hit !== null && hit < dc - 1) return;
+      } else {
+        const hit = this.collider.raycast(this.pos.x, this.pos.y, this.pos.z, _tmp.x, _tmp.y, _tmp.z, d);
+        if (hit !== null && hit < d - 1) return;
+      }
       bestScore = score;
       _best.copy(_cand);
       this.targetBox = this.candBox;

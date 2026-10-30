@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CityCollider, NET, NET_STATES, WORLD_SEED, generateCity, type CityLayout, type NetState } from '@game/shared';
+import { CityCollider, NET, NET_STATES, THWIP, WORLD_SEED, generateCity, type CityLayout, type NetState } from '@game/shared';
 import { Input } from './Input';
 import { PlayerController } from './PlayerController';
 import { CameraRig } from './CameraRig';
@@ -446,6 +446,7 @@ export class Game {
         state: player.state,
         chain: player.chain,
         release: releaseLabel(player.lastReleaseQuality),
+        thwip: player.thwipCooldownLeft > 0 ? `${player.thwipCooldownLeft.toFixed(1)} s` : player.pos.y < THWIP.minHeight ? `below ${THWIP.minHeight} m` : 'ready',
         net: this.netLabel(),
       });
       this.worstFrameMs = 0;

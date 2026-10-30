@@ -60,6 +60,10 @@ export const SWING = {
   minAnchorHeight: 4,
   minDist: 8,
   maxDist: 60,
+  /** Zip-to-point (C held): closest, farthest, and how far below you an edge can be (m). */
+  zipMinDist: 2.5,
+  zipMaxDist: 80,
+  zipMaxDrop: 50,
   /** Third person aims this much (radians) above the camera's center, like a crosshair over the character. */
   aimRaise: 0.3,
   /** Swinging aims this much higher than where you look (radians); zipping (C) aims exactly. */
@@ -137,7 +141,9 @@ export const THWIP = {
   /** Even from a standstill, you leave at least this fast (horizontally). */
   minSpeed: 14,
   /** Seconds between thwips. */
-  cooldown: 0.6,
+  cooldown: 5,
+  /** Only works at least this high above the street (m). */
+  minHeight: 10,
   /** How far the web reaches if it doesn't hit a building (just for the visual). */
   reach: 40,
 };

@@ -1,7 +1,20 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { WebSocket } from 'ws';
-import { NET, PROTOCOL_VERSION, encode, parseServerMessage, type ClientMessage, type NetState, type ServerMessage } from '@game/shared';
+import {
+  COMBAT,
+  NET,
+  PROTOCOL_VERSION,
+  WORLD_SEED,
+  encode,
+  generateCity,
+  parseServerMessage,
+  type ClientMessage,
+  type GameMode,
+  type NetState,
+  type ServerMessage,
+  type Vec3,
+} from '@game/shared';
 import { startGameServer, type RunningServer } from '../src/GameServer';
 
 let server: RunningServer;
@@ -66,10 +79,10 @@ class TestClient {
   }
 }
 
-async function join(name: string, room = 'test') {
+async function join(name: string, room = 'test', mode: GameMode = 'brawl') {
   const c = new TestClient();
   await c.opened();
-  c.send({ t: 'hello', v: PROTOCOL_VERSION, name, room });
+  c.send({ t: 'hello', v: PROTOCOL_VERSION, name, room, mode });
   const welcome = await c.waitFor('welcome');
   return { c, welcome };
 }
@@ -190,7 +203,7 @@ describe('game server', () => {
   it('rejects an outdated client with a clear message', async () => {
     const c = new TestClient();
     await c.opened();
-    c.send({ t: 'hello', v: PROTOCOL_VERSION + 1, name: 'Old', room: 'x' });
+    c.send({ t: 'hello', v: PROTOCOL_VERSION + 1, name: 'Old', room: 'x', mode: 'brawl' });
     const rej = await c.waitFor('reject');
     assert.equal(rej.reason, 'version');
     assert.equal(await c.closed(), 4000);
@@ -217,7 +230,7 @@ describe('game server', () => {
     for (let i = 0; i < NET.maxPlayersPerRoom; i++) players.push(await join(`P${i}`, 'full'));
     const extra = new TestClient();
     await extra.opened();
-    extra.send({ t: 'hello', v: PROTOCOL_VERSION, name: 'Extra', room: 'full' });
+    extra.send({ t: 'hello', v: PROTOCOL_VERSION, name: 'Extra', room: 'full', mode: 'brawl' });
     const rej = await extra.waitFor('reject');
     assert.equal(rej.reason, 'full');
     for (const p of players) p.c.close();
@@ -232,5 +245,177 @@ describe('game server', () => {
     await a.c.closed();
     await sleep(50);
     assert.equal(server.stats().rooms, before.rooms);
+  });
+});
+
+// ---------------------------------------------------------------- combat
+
+const spawn = generateCity(WORLD_SEED).spawn;
+const at = (dx: number, dy: number, dz: number): Vec3 => [spawn.x + dx, spawn.y + dy, spawn.z + dz];
+const dirTo = (from: Vec3, to: Vec3): Vec3 => {
+  const d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+  const l = Math.hypot(d[0], d[1], d[2]);
+  return [d[0] / l, d[1] / l, d[2] / l];
+};
+/** Latest position the client has heard for someone. */
+const lastPos = (c: TestClient, id: string): Vec3 | null => {
+  for (let i = c.inbox.length - 1; i >= 0; i--) {
+    const m = c.inbox[i];
+    if (m.t === 'snap') for (const [sid, , s] of m.states) if (sid === id) return s.p;
+  }
+  return null;
+};
+
+describe('combat', () => {
+  it('training rooms come with dummies at full health', async () => {
+    const a = await join('Trainer', 'train-1', 'training');
+    assert.equal(a.welcome.mode, 'training');
+    const bots = a.welcome.players.filter((p) => p.bot);
+    assert.equal(bots.length, 5);
+    for (const b of bots) assert.equal(a.welcome.hp[b.id], COMBAT.maxHp);
+    await a.c.waitFor('snap', (m) => m.states.some(([id]) => id === 'bot1'));
+    a.c.close();
+  });
+
+  it('a web shot flies, hits a dummy, and does damage', async () => {
+    const a = await join('Shooter', 'train-2', 'training');
+    a.c.send({ t: 'state', s: { p: at(0, 0, 0), v: [0, 0, 0], y: 0, s: 0 } });
+    await a.c.waitFor('snap', (m) => m.states.some(([id]) => id === 'bot1'));
+    await sleep(150);
+    const o = at(0, 1.5, 0);
+    const target = lastPos(a.c, 'bot1')!;
+    a.c.send({ t: 'fire', o, d: dirTo(o, [target[0], target[1] + 1.2, target[2]]), vt: a.welcome.time + 200, c: 1 });
+    const shot = await a.c.waitFor('shot');
+    assert.equal(shot.c, 1);
+    assert.ok(shot.len > 20, 'nothing between us and the dummy');
+    const hit = await a.c.waitFor('shotHit');
+    assert.equal(hit.target, 'bot1');
+    const dmg = await a.c.waitFor('dmg', (m) => m.target === 'bot1');
+    assert.equal(dmg.kind, 'shot');
+    assert.equal(dmg.hp, COMBAT.maxHp - COMBAT.shotDamage);
+    assert.ok(dmg.fx.slow);
+    a.c.close();
+  });
+
+  it('a shot into a building simply ends (nothing left on the server)', async () => {
+    const a = await join('Wall', 'train-3', 'training');
+    // Mid-block on the avenue (spawn itself is an intersection, with a clear street sideways).
+    a.c.send({ t: 'state', s: { p: at(0, 0, -35), v: [0, 0, 0], y: 0, s: 0 } });
+    await sleep(100);
+    a.c.send({ t: 'fire', o: at(0, 1.5, -35), d: [1, 0, 0], vt: a.welcome.time, c: 7 });
+    const shot = await a.c.waitFor('shot');
+    assert.ok(shot.len < 30, `should stop at the building beside the avenue (len ${shot.len})`);
+    await sleep(400);
+    assert.ok(!a.c.inbox.some((m) => m.t === 'shotHit'));
+    assert.equal(server.stats().shots, 0);
+    a.c.close();
+  });
+
+  it('limits how fast you can shoot', async () => {
+    const a = await join('Spam', 'train-4', 'training');
+    a.c.send({ t: 'state', s: { p: at(0, 0, 0), v: [0, 0, 0], y: 0, s: 0 } });
+    await sleep(100);
+    for (let i = 0; i < 30; i++) a.c.send({ t: 'fire', o: at(0, 1.5, 0), d: [0, 1, 0], vt: a.welcome.time, c: i });
+    await sleep(200);
+    const shots = a.c.inbox.filter((m) => m.t === 'shot').length;
+    assert.ok(shots >= 1 && shots <= 3, `${shots} shots got through a 30-shot burst`);
+    a.c.close();
+  });
+
+  it('ignores shots that do not start at the shooter', async () => {
+    const a = await join('Cheat', 'train-5', 'training');
+    a.c.send({ t: 'state', s: { p: at(0, 0, 0), v: [0, 0, 0], y: 0, s: 0 } });
+    await sleep(100);
+    a.c.send({ t: 'fire', o: at(0, 1.5, -24), d: [0, 0, -1], vt: a.welcome.time, c: 1 });
+    await sleep(200);
+    assert.ok(!a.c.inbox.some((m) => m.t === 'shot'));
+    a.c.close();
+  });
+
+  it('yank downs a dummy; a strike on a downed target is a fatal slam; then it respawns', async () => {
+    const a = await join('Yanker', 'train-6', 'training');
+    a.c.send({ t: 'state', s: { p: at(0, 0, 0), v: [0, 0, 0], y: 0, s: 0 } });
+    await a.c.waitFor('snap', (m) => m.states.some(([id]) => id === 'bot1'));
+    await sleep(150);
+    a.c.send({ t: 'act', k: 'yank', target: 'bot1', vt: Date.now() });
+    const yank = await a.c.waitFor('dmg', (m) => m.kind === 'yank');
+    assert.equal(yank.target, 'bot1');
+    assert.ok(yank.fx.down && yank.fx.down > 0);
+    assert.ok(yank.fx.imp![2] > 0, 'pulled toward the yanker (+z)');
+    // It arcs over and lands on the floor a few meters in front of us.
+    await sleep(900);
+    const p = lastPos(a.c, 'bot1')!;
+    const gap = Math.hypot(p[0] - spawn.x, p[2] - spawn.z);
+    assert.ok(gap < 8, `dummy should land near the yanker (landed ${gap.toFixed(1)} m away)`);
+    assert.ok(p[1] < 0.5, 'on the floor');
+    a.c.send({ t: 'state', s: { p: [p[0], p[1], p[2] + 1.5], v: [0, 0, -20], y: 0, s: 5 } });
+    await sleep(80);
+    a.c.send({ t: 'act', k: 'strike', target: 'bot1', vt: 1e12 });
+    const slam = await a.c.waitFor('dmg', (m) => m.kind === 'slam');
+    assert.equal(slam.hp, 0);
+    const ko = await a.c.waitFor('ko');
+    assert.equal(ko.target, 'bot1');
+    const back = await a.c.waitFor('respawn', (m) => m.id === 'bot1', COMBAT.respawnSeconds * 1000 + 1500);
+    assert.equal(back.hp, COMBAT.maxHp);
+    a.c.close();
+  });
+
+  it('rejects out-of-range yanks and slow kicks', async () => {
+    const a = await join('Rules', 'train-7', 'training');
+    a.c.send({ t: 'state', s: { p: at(0, 0, 0), v: [0, 0, 0], y: 0, s: 0 } });
+    await a.c.waitFor('snap', (m) => m.states.some(([id]) => id === 'bot5'));
+    await sleep(150);
+    a.c.send({ t: 'act', k: 'yank', target: 'bot5', vt: 1e12 }); // Far Dummy, 110 m away
+    const p = lastPos(a.c, 'bot1')!;
+    a.c.send({ t: 'state', s: { p: [p[0], p[1], p[2] + 1], v: [0, 0, -2], y: 0, s: 0 } });
+    await sleep(80);
+    a.c.send({ t: 'act', k: 'kick', target: 'bot1', vt: 1e12 }); // way too slow to kick
+    await sleep(200);
+    assert.ok(!a.c.inbox.some((m) => m.t === 'dmg'));
+    // A fast pass, though, lands.
+    a.c.send({ t: 'state', s: { p: [p[0], p[1], p[2] + 1], v: [0, -5, -30], y: 0, s: 2 } });
+    await sleep(80);
+    a.c.send({ t: 'act', k: 'kick', target: 'bot1', vt: 1e12 });
+    const kick = await a.c.waitFor('dmg', (m) => m.kind === 'kick');
+    assert.ok(kick.amount > COMBAT.kickDamageBase);
+    a.c.close();
+  });
+
+  it('players can shoot each other in brawl (after spawn protection)', async () => {
+    const a = await join('Gunner', 'brawl-1', 'brawl');
+    const b = await join('Target', 'brawl-1', 'brawl');
+    a.c.send({ t: 'state', s: { p: at(0, 0, 0), v: [0, 0, 0], y: 0, s: 0 } });
+    b.c.send({ t: 'state', s: { p: at(0, 0, -20), v: [0, 0, 0], y: 0, s: 0 } });
+    await sleep(COMBAT.spawnProtectSeconds * 1000 + 100);
+    b.c.send({ t: 'state', s: { p: at(0, 0, -20), v: [0, 0, 0], y: 0, s: 0 } });
+    await sleep(100);
+    const o = at(0, 1.5, 0);
+    a.c.send({ t: 'fire', o, d: dirTo(o, at(0, 1.2, -20)), vt: 1e12, c: 1 });
+    const dmg = await b.c.waitFor('dmg', (m) => m.target === b.welcome.you.id);
+    assert.equal(dmg.by, a.welcome.you.id);
+    assert.equal(dmg.hp, COMBAT.maxHp - COMBAT.shotDamage);
+    a.c.close();
+    b.c.close();
+  });
+
+  it('tag: a hit from "it" passes it on, with no damage', async () => {
+    const a = await join('TagA', 'tag-1', 'tag');
+    const b = await join('TagB', 'tag-1', 'tag');
+    const first = await a.c.waitFor('tag', (m) => m.it !== null);
+    const it = first.it === a.welcome.you.id ? a : b;
+    const other = it === a ? b : a;
+    it.c.send({ t: 'state', s: { p: at(0, 0, 0), v: [0, 0, 0], y: 0, s: 0 } });
+    other.c.send({ t: 'state', s: { p: at(0, 0, -15), v: [0, 0, 0], y: 0, s: 0 } });
+    await sleep(COMBAT.spawnProtectSeconds * 1000 + 100);
+    other.c.send({ t: 'state', s: { p: at(0, 0, -15), v: [0, 0, 0], y: 0, s: 0 } });
+    await sleep(100);
+    const o = at(0, 1.5, 0);
+    it.c.send({ t: 'fire', o, d: dirTo(o, at(0, 1.2, -15)), vt: 1e12, c: 1 });
+    const passed = await other.c.waitFor('tag', (m) => m.it === other.welcome.you.id);
+    assert.ok(passed);
+    const dmg = await other.c.waitFor('dmg');
+    assert.equal(dmg.amount, 0);
+    a.c.close();
+    b.c.close();
   });
 });

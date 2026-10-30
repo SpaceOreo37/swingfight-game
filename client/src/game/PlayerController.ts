@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { DRAG_K, LAUNCH, PHYS, SWING, THWIP, WALL, launchPower, type Box, type CityCollider } from '@game/shared';
+import { DRAG_K, LAUNCH, PHYS, SWING, THWIP, WALL, launchPower, type Box, type HitFx, type CityCollider } from '@game/shared';
 
 export type MoveState = 'ground' | 'air' | 'swing' | 'wall' | 'charge' | 'zip';
 
@@ -21,6 +21,9 @@ export interface StepInput {
   anchorHeld: boolean;
   /** True on the step the thwip button was pressed. */
   thwipPressed: boolean;
+  /** Where the web marker aims from / along (camera). Optional: falls back to yaw/pitch. */
+  markerOrigin?: THREE.Vector3;
+  markerDir?: THREE.Vector3;
   /** Unit vector the camera is looking along (used by thwip). */
   aimDir: THREE.Vector3;
 }
@@ -35,6 +38,9 @@ const _best = new THREE.Vector3();
 const _tmp = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _lookDir = new THREE.Vector3(0, 0, -1);
+const _aimO = new THREE.Vector3();
+const _aimD = new THREE.Vector3();
+const _tmp2 = new THREE.Vector3();
 const _target = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -88,6 +94,18 @@ export class PlayerController {
   jolt = 0;
   private webWasTaut = false;
 
+  // Combat status.
+  /** Seconds left slowed by web shots. */
+  slowTime = 0;
+  /** Seconds left on the floor from a yank (slow, can't swing/zip/thwip). */
+  downTime = 0;
+  /** Knocked out: no control until respawn. */
+  frozen = false;
+  /** Zip strike: where the target is now (null = lost them). */
+  private strikeFollow: (() => THREE.Vector3 | null) | null = null;
+  /** Called when a zip strike reaches its target. */
+  onStrikeArrive: (() => void) | null = null;
+
   /** Seconds the launch has been charging (valid while state === 'charge'). */
   chargeTime = 0;
   /** Number of point launches (for tests / stats). */
@@ -104,7 +122,19 @@ export class PlayerController {
   private readonly zipNormal = new THREE.Vector3();
   private zipLand = false;
   /** Space was pressed during this zip: launch off the edge on arrival. */
-  private zipLaunchQueued = false;
+  zipLaunchQueued = false;
+  /** Direction of the current/last zip (start -> point). The point launch follows it. */
+  private readonly zipHeading = new THREE.Vector3();
+  /** Time left to still turn a just-finished zip into a launch / bounce. */
+  private launchGrace = 0;
+  /** What a late Space does during the grace window. */
+  private graceKind: 'launch' | 'bounce' = 'launch';
+  /** True if the current zip ends on a roof edge (launch), false if on a wall (bounce). */
+  get zipToRoof(): boolean {
+    return this.zipLand;
+  }
+  /** Number of wall bounces (for tests / stats). */
+  wallBounces = 0;
   private zipTime = 0;
   /** Set on a swing press; fires as soon as you're airborne with a target. */
   private firePending = false;
@@ -134,6 +164,14 @@ export class PlayerController {
     this.prevPos.copy(this.pos);
     this.swingCooldown = Math.max(0, this.swingCooldown - dt);
     this.wallCooldown = Math.max(0, this.wallCooldown - dt);
+    this.slowTime = Math.max(0, this.slowTime - dt);
+    this.downTime = Math.max(0, this.downTime - dt);
+    // Knocked out: no input at all. Downed: can move (slowly) but no webs.
+    if (this.frozen) {
+      inp = { ...inp, moveX: 0, moveZ: 0, jumpPressed: false, swingHeld: false, swingPressed: false, thwipPressed: false, anchorHeld: false };
+    }
+    const noWebs = this.frozen || this.downTime > 0;
+    if (noWebs) inp = { ...inp, swingHeld: false, swingPressed: false, thwipPressed: false };
 
     // Input direction in world space, relative to the camera.
     const s = Math.sin(inp.camYaw);
@@ -145,7 +183,7 @@ export class PlayerController {
 
     this.thwipCooldown = Math.max(0, this.thwipCooldown - dt);
     this.thwipAge += dt;
-    if (inp.thwipPressed && this.thwipCooldown === 0) this.thwip(inp.aimDir);
+    if (inp.thwipPressed && this.thwipCooldown === 0) this.thwip(inp.aimDir, inp.camYaw);
 
     if (this.state === 'swing' && !inp.swingHeld) this.releaseSwing(false);
     // Webs only fire in the air: jump first, then swing. A fresh press fires
@@ -168,10 +206,20 @@ export class PlayerController {
       else this.attach();
     }
 
+    // Late Space right after a zip still counts (launch off a roof edge, or bounce off a wall).
+    if (this.launchGrace > 0) {
+      this.launchGrace = Math.max(0, this.launchGrace - dt);
+      if (inp.jumpPressed) {
+        if (this.graceKind === 'launch' && this.state === 'air') this.pointLaunch();
+        else if (this.graceKind === 'bounce' && this.state === 'wall') this.wallBounce(this.wallNormal);
+      }
+    }
+
     if (this.state === 'charge') {
       this.chargeStep(inp, dt);
     } else if (this.state === 'zip') {
-      this.zipStep(inp, dt);
+      if (this.strikeFollow) this.strikeStep(dt);
+      else this.zipStep(inp, dt);
     } else if (this.state === 'swing') {
       this.swingStep(inp, dt);
     } else if (this.state === 'wall') {
@@ -187,10 +235,17 @@ export class PlayerController {
       this.vel.y -= PHYS.gravity * (rising ? PHYS.riseGravityScale : 1) * dt;
       this.move(dt);
       if (this.onGround && this.state === 'air' && this.preMoveVel.y < -14) this.jolt += Math.min(0.7, -this.preMoveVel.y / 45);
+      // Yanked: you hit the floor and stop dead instead of sliding.
+      if (this.onGround && this.state === 'air' && this.downTime > 0) {
+        this.vel.x = 0;
+        this.vel.z = 0;
+      }
       this.state = this.onGround ? 'ground' : 'air';
       if (this.hitWall && this.wallCooldown === 0 && this.wantsWall(wasGround)) this.enterWall();
     }
     if (this.state === 'ground') this.chain = 0;
+    // Webbed up: heavier air resistance on top of the slower ground speed.
+    if (this.slowTime > 0 && this.state !== 'ground') this.vel.multiplyScalar(1 - 1.2 * dt);
 
     // Body faces where the mouse is looking (or the wall you're on).
     const target = this.state === 'wall' ? Math.atan2(this.wallNormal.x, this.wallNormal.z) : inp.camYaw;
@@ -202,7 +257,8 @@ export class PlayerController {
   // ---------------------------------------------------------------- ground / air
 
   private groundMove(inp: StepInput, dt: number): void {
-    const speed = inp.sprint ? PHYS.sprintSpeed : PHYS.runSpeed;
+    const status = this.downTime > 0 ? 0.4 : this.slowTime > 0 ? 0.6 : 1;
+    const speed = (inp.sprint ? PHYS.sprintSpeed : PHYS.runSpeed) * status;
     const tx = _wish.x * speed;
     const tz = _wish.z * speed;
     const rate = (_wish.lengthSq() > 0.01 ? PHYS.groundAccel : PHYS.groundFriction) * dt;
@@ -285,10 +341,35 @@ export class PlayerController {
       _ideal.lerp(_cand, THREE.MathUtils.clamp((speed - 3) / 12, 0, 1));
     }
 
-    const r = SWING.searchRadius;
+    // Aim ray: where the player is pointing the camera (third person: a bit
+    // above the character, like a crosshair). The marker latches onto the
+    // building edge nearest this ray, anywhere along the edge.
+    if (inp.markerOrigin && inp.markerDir) {
+      _aimO.copy(inp.markerOrigin);
+      _aimD.copy(inp.markerDir).normalize();
+    } else {
+      // Fallback (tests / no camera): eye height, from yaw and pitch.
+      const elev = SWING.aimRaise - inp.camPitch;
+      _aimO.set(this.pos.x, this.pos.y + 1.7, this.pos.z);
+      _aimD.set(lookX * Math.cos(elev), Math.sin(elev), lookZ * Math.cos(elev));
+    }
+    // Swinging (not holding C): aim higher than the camera, so looking at the
+    // horizon picks web points up and ahead, like real swinging needs.
+    if (!inp.anchorHeld) {
+      const elev = Math.min(Math.asin(THREE.MathUtils.clamp(_aimD.y, -1, 1)) + SWING.swingAimLift, 1.3);
+      const h = Math.hypot(_aimD.x, _aimD.z) || 1;
+      _aimD.set((_aimD.x / h) * Math.cos(elev), Math.sin(elev), (_aimD.z / h) * Math.cos(elev));
+    }
+    // How much the aim matters vs. the physics-friendly spot. Holding C (zip /
+    // launch) = pure aim. Swinging fast blends in the physics spot so swings
+    // stay smooth and fast.
+    const aimW = inp.anchorHeld ? 1 : 1 - THREE.MathUtils.clamp((speed - 6) / 20, 0, SWING.physicsBlendMax);
+    const minY = this.pos.y + SWING.minAnchorHeight;
+
+    const R = SWING.maxDist;
     this.collider.query(
-      _ideal.x - r, this.pos.y + SWING.minAnchorHeight, _ideal.z - r,
-      _ideal.x + r, _ideal.y + r, _ideal.z + r,
+      this.pos.x - R, this.pos.y + SWING.minAnchorHeight, this.pos.z - R,
+      this.pos.x + R, this.pos.y + R, this.pos.z + R,
       _aimBoxes,
     );
 
@@ -299,8 +380,14 @@ export class PlayerController {
       _tmp.subVectors(_cand, this.pos);
       const d = _tmp.length();
       if (d < SWING.minDist || d > SWING.maxDist) return;
-      if (_tmp.x * _dir.x + _tmp.z * _dir.z < 0) return; // behind
-      let score = _cand.distanceToSquared(_ideal);
+      if (!inp.anchorHeld && _tmp.x * _dir.x + _tmp.z * _dir.z < 0) return; // behind (swinging)
+      // Angle between the aim ray and this point.
+      _tmp2.subVectors(_cand, _aimO);
+      const along = _tmp2.dot(_aimD);
+      if (along <= 0) return;
+      const ang = Math.atan2(Math.sqrt(Math.max(0, _tmp2.lengthSq() - along * along)), along);
+      if (aimW > 0.9 && ang > SWING.maxAimAngle) return;
+      let score = aimW * (ang / 0.3) ** 2 + (1 - aimW) * (_cand.distanceTo(_ideal) / 15) ** 2;
       if (had && _cand.distanceToSquared(this.target) < 1) score *= SWING.stickiness;
       if (score >= bestScore) return;
       // Must be able to see it: no building in the way.
@@ -313,24 +400,27 @@ export class PlayerController {
       this.targetOnRoof = this.candRoof;
     };
 
+    // Each building has 8 edges: 4 along the roof and 4 up the corners.
+    // For each, take the point on it closest to the aim ray.
+    const edge = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) => {
+      closestOnSegmentToRay(x0, y0, z0, x1, y1, z1, _aimO, _aimD, _cand);
+      consider();
+    };
     for (const b of _aimBoxes) {
       if (b.maxY - b.minY < 3) continue; // curbs
-      const cx = THREE.MathUtils.clamp(_ideal.x, b.minX, b.maxX);
-      const cy = THREE.MathUtils.clamp(_ideal.y, b.minY, b.maxY);
-      const cz = THREE.MathUtils.clamp(_ideal.z, b.minZ, b.maxZ);
       this.candBox = b;
-      // Roof edges (4)...
       this.candRoof = true;
-      _cand.set(cx, b.maxY, b.minZ); consider();
-      _cand.set(cx, b.maxY, b.maxZ); consider();
-      _cand.set(b.minX, b.maxY, cz); consider();
-      _cand.set(b.maxX, b.maxY, cz); consider();
-      // ...and corner edges running up the building (4).
-      this.candRoof = cy >= b.maxY - 0.01;
-      _cand.set(b.minX, cy, b.minZ); consider();
-      _cand.set(b.maxX, cy, b.minZ); consider();
-      _cand.set(b.minX, cy, b.maxZ); consider();
-      _cand.set(b.maxX, cy, b.maxZ); consider();
+      edge(b.minX, b.maxY, b.minZ, b.maxX, b.maxY, b.minZ);
+      edge(b.minX, b.maxY, b.maxZ, b.maxX, b.maxY, b.maxZ);
+      edge(b.minX, b.maxY, b.minZ, b.minX, b.maxY, b.maxZ);
+      edge(b.maxX, b.maxY, b.minZ, b.maxX, b.maxY, b.maxZ);
+      for (const [x, z] of [[b.minX, b.minZ], [b.maxX, b.minZ], [b.minX, b.maxZ], [b.maxX, b.maxZ]]) {
+        if (b.maxY < minY) continue;
+        // Only the part of the corner that's high enough to web onto.
+        closestOnSegmentToRay(x, Math.max(b.minY, minY), z, x, b.maxY, z, _aimO, _aimD, _cand);
+        this.candRoof = _cand.y >= b.maxY - 0.01; // top of a corner = a roof corner
+        consider();
+      }
     }
 
     this.hasTarget = bestScore !== Infinity;
@@ -340,29 +430,31 @@ export class PlayerController {
   // ---------------------------------------------------------------- thwip
 
   /**
-   * Quick web toward where you're looking: you keep your speed (plus a bit)
-   * but it all points the way you aimed. Cancels a swing.
+   * Quick web toward where you're looking. Horizontal only: your sideways
+   * speed (plus a boost) is pointed where you look, but it never adds any
+   * upward speed, so spamming it gives speed, not flight. Cancels a swing.
    */
-  private thwip(aim: THREE.Vector3): void {
-    _dir.copy(aim).normalize();
-    // On the ground, aiming flat or down would just skid: give it some lift.
-    if (this.state === 'ground' && _dir.y < 0.2) {
-      _dir.y = 0.2;
-      _dir.normalize();
-    }
-    const speed = Math.max(this.vel.length() + THWIP.boost, THWIP.minSpeed);
-    this.vel.copy(_dir).multiplyScalar(speed);
+  private thwip(aim: THREE.Vector3, camYaw: number): void {
+    // Horizontal direction you're looking (falls back to camera yaw when aiming straight up/down).
+    _dir.set(aim.x, 0, aim.z);
+    if (_dir.lengthSq() < 0.01) _dir.set(-Math.sin(camYaw), 0, -Math.cos(camYaw));
+    _dir.normalize();
+    const hSpeed = Math.max(Math.hypot(this.vel.x, this.vel.z) + THWIP.boost, THWIP.minSpeed);
+    this.vel.x = _dir.x * hSpeed;
+    this.vel.z = _dir.z * hSpeed;
+    // Vertical speed is left exactly as it was: no lift.
     if (this.state === 'swing') this.swingCooldown = SWING.cooldown;
     if (this.state === 'wall') this.wallCooldown = WALL.cooldown;
-    this.state = 'air';
+    if (this.state !== 'ground') this.state = 'air';
     this.thwipCooldown = THWIP.cooldown;
     this.thwipAge = 0;
     this.thwipCount++;
     this.jolt += 0.3;
 
-    // Where the strand lands: the first building along the aim, or just far out.
-    const hit = this.collider.raycast(this.pos.x, this.pos.y + 1.5, this.pos.z, _dir.x, _dir.y, _dir.z, THWIP.reach);
-    this.thwipPoint.copy(this.pos).addScaledVector(_dir, hit ?? THWIP.reach);
+    // The strand still shoots where you aimed: the first building along it, or just far out.
+    _tmp.copy(aim).normalize();
+    const hit = this.collider.raycast(this.pos.x, this.pos.y + 1.5, this.pos.z, _tmp.x, _tmp.y, _tmp.z, THWIP.reach);
+    this.thwipPoint.copy(this.pos).addScaledVector(_tmp, hit ?? THWIP.reach);
     this.thwipPoint.y += 1.5;
   }
 
@@ -504,20 +596,44 @@ export class PlayerController {
     else if (!this.onGround) this.state = 'air'; // knocked off the ground: cancel
   }
 
-  /** Fire the charged launch: mostly up, leaning a little toward the web point. */
+  /**
+   * Fire the charged launch toward the web point. Aimed like a thrown ball:
+   * the arc (with gravity) passes just above the point. If the charge is too
+   * weak to reach it, you arc toward it as far as that power allows.
+   */
   private launch(): void {
     const power = launchPower(this.chargeTime);
-    _tmp.subVectors(this.anchor, this.pos).setY(0);
-    if (_tmp.lengthSq() > 0.01) _tmp.normalize().multiplyScalar(LAUNCH.sideways);
-    _tmp.y = 1;
-    _tmp.normalize();
-    this.vel.copy(_tmp).multiplyScalar(Math.max(LAUNCH.minSpeed, LAUNCH.maxSpeed * power));
+    const speed = Math.max(LAUNCH.minSpeed, LAUNCH.maxSpeed * power);
+    // Target: just above the web point (feet clear the edge).
+    _tmp.subVectors(this.anchor, this.pos);
+    _tmp.y += LAUNCH.aimAbove;
+    const D = Math.hypot(_tmp.x, _tmp.z);
+    const H = _tmp.y;
+    // Mostly rising, so use the rising gravity.
+    const g = PHYS.gravity * PHYS.riseGravityScale;
+    const v2 = speed * speed;
+    const disc = v2 * v2 - g * (g * D * D + 2 * H * v2);
+    if (D > 0.5 && disc >= 0) {
+      // Flatter of the two ballistic solutions (gets there fastest).
+      const angle = Math.atan((v2 - Math.sqrt(disc)) / (g * D));
+      const c = Math.cos(angle) / D;
+      _tmp.set(_tmp.x * c, Math.sin(angle), _tmp.z * c);
+    } else if (D > 0.5) {
+      // Can't reach it at this power: use the angle that carries farthest
+      // toward it (45° plus half the slope up to it), so you get as close as possible.
+      const angle = Math.PI / 4 + Math.atan2(H, D) / 2;
+      const c = Math.cos(angle) / D;
+      _tmp.set(_tmp.x * c, Math.sin(angle), _tmp.z * c);
+    } else {
+      _tmp.set(0, 1, 0); // directly overhead
+    }
+    this.vel.copy(_tmp).multiplyScalar(speed);
     this.lastLaunchPower = power;
     this.jolt += 0.25 + 0.5 * power;
     this.chargeTime = 0;
     this.state = 'air';
     this.swingCooldown = SWING.cooldown;
-    // Don't stick to the building you launched beside; slide up past it instead.
+    // Don't grab the wall you're standing next to on the way out.
     this.wallCooldown = LAUNCH.noWallGrab;
   }
 
@@ -566,13 +682,14 @@ export class PlayerController {
     }
     this.zipTime = 0;
     this.zipLaunchQueued = false;
+    this.zipHeading.subVectors(this.zipDest, this.pos).normalize();
     this.state = 'zip';
   }
 
   private zipStep(inp: StepInput, dt: number): void {
     this.zipTime += dt;
-    // Space at any point during a zip to an edge = point launch on arrival.
-    if (inp.jumpPressed && this.zipLand) this.zipLaunchQueued = true;
+    // Space at any point during a zip = launch off a roof edge / bounce off a wall on arrival.
+    if (inp.jumpPressed) this.zipLaunchQueued = true;
     _tmp.subVectors(this.zipDest, this.pos);
     const d = _tmp.length();
     if (d < 0.8 || this.zipTime > LAUNCH.zipMaxTime) {
@@ -581,43 +698,162 @@ export class PlayerController {
     }
     this.vel.copy(_tmp).multiplyScalar(Math.min(LAUNCH.zipSpeed, d / dt) / d);
     this.move(dt);
-    // Something in the way (another wall): stick to it.
-    if (this.hitWall && d > 2) this.enterWall();
+    // Something in the way (another wall): stick to it, or bounce if Space was pressed.
+    if (this.hitWall && d > 2) {
+      if (this.zipLaunchQueued) this.wallBounce(this.contactNormal);
+      else this.enterWall();
+    }
     else if (this.onGround && d > 2) this.state = 'ground';
+  }
+
+  // ---------------------------------------------------------------- combat
+
+  /** A hit landed on us (from the server): knockback, slow, downed. */
+  applyHit(fx: HitFx): void {
+    if (fx.imp) {
+      this.vel.x += fx.imp[0];
+      this.vel.y += fx.imp[1];
+      this.vel.z += fx.imp[2];
+      if (this.state === 'ground' && fx.imp[1] > 0) this.state = 'air';
+    }
+    if (fx.slow) this.slowTime = Math.max(this.slowTime, fx.slow);
+    if (fx.down) {
+      this.downTime = Math.max(this.downTime, fx.down);
+      // Ripped off whatever we were doing.
+      if (this.state !== 'ground') this.state = 'air';
+      this.strikeFollow = null;
+      this.firePending = false;
+    }
+    this.jolt += fx.down ? 0.7 : 0.3;
+  }
+
+  /**
+   * Zip strike: zip at a player (following them as they move) and kick on
+   * arrival. Returns false if we can't right now.
+   */
+  startStrike(follow: () => THREE.Vector3 | null): boolean {
+    if (this.frozen || this.downTime > 0 || this.state === 'charge') return false;
+    const p = follow();
+    if (!p) return false;
+    this.strikeFollow = follow;
+    this.anchor.copy(p);
+    this.anchor.y += 1.2;
+    this.zipTime = 0;
+    this.zipLaunchQueued = false;
+    this.zipHeading.subVectors(p, this.pos).normalize();
+    if (this.state === 'wall') this.wallCooldown = WALL.cooldown;
+    this.state = 'zip';
+    return true;
+  }
+
+  private strikeStep(dt: number): void {
+    this.zipTime += dt;
+    const p = this.strikeFollow!();
+    if (!p || this.zipTime > LAUNCH.strikeMaxTime) return this.endStrike(false);
+    this.anchor.set(p.x, p.y + 1.2, p.z); // web stays on them
+    _tmp.subVectors(p, this.pos);
+    const d = _tmp.length();
+    if (d < LAUNCH.strikeConnect) return this.endStrike(true);
+    this.zipHeading.copy(_tmp).divideScalar(d);
+    this.vel.copy(this.zipHeading).multiplyScalar(Math.min(LAUNCH.strikeSpeed, d / dt));
+    this.move(dt);
+    if (this.hitWall && d > 3) {
+      this.strikeFollow = null;
+      this.enterWall();
+    }
+  }
+
+  private endStrike(connected: boolean): void {
+    this.strikeFollow = null;
+    this.state = 'air';
+    this.swingCooldown = SWING.cooldown;
+    if (connected) {
+      // Kick off them: bounce back and up.
+      this.vel.copy(this.zipHeading).multiplyScalar(-8);
+      this.vel.y = 9;
+      this.jolt += 0.6;
+      this.onStrikeArrive?.();
+    }
+  }
+
+  /** Knocked out: drop, no control until respawn(). */
+  knockOut(): void {
+    this.frozen = true;
+    this.strikeFollow = null;
+    if (this.state !== 'ground') this.state = 'air';
+    this.vel.x *= 0.3;
+    this.vel.z *= 0.3;
+  }
+
+  /** Back in action at a spawn point, all statuses cleared. */
+  respawnAt(x: number, y: number, z: number): void {
+    this.teleport(x, y, z);
+    this.frozen = false;
+    this.slowTime = 0;
+    this.downTime = 0;
+    this.strikeFollow = null;
+  }
+
+  /** Fling onward along the zip's heading (tilted up enough to clear the edge). */
+  private pointLaunch(): void {
+    _tmp.copy(this.zipHeading);
+    if (_tmp.y < LAUNCH.pointLaunchMinUp) {
+      const h = Math.hypot(_tmp.x, _tmp.z) || 1;
+      const flat = Math.sqrt(1 - LAUNCH.pointLaunchMinUp ** 2);
+      _tmp.set((_tmp.x / h) * flat, LAUNCH.pointLaunchMinUp, (_tmp.z / h) * flat);
+    }
+    this.vel.copy(_tmp).multiplyScalar(LAUNCH.pointLaunchSpeed);
+    this.state = 'air';
+    this.zipLaunchQueued = false;
+    this.launchGrace = 0;
+    this.wallCooldown = LAUNCH.noWallGrab;
+    this.swingCooldown = SWING.cooldown;
+    this.jolt += 0.45;
+    this.pointLaunches++;
   }
 
   private finishZip(): void {
     const n = this.zipNormal;
     this.jolt += 0.25;
     if (this.zipLand && this.zipLaunchQueued) {
-      // Point launch: fling up and onward the way we were zipping (over the edge).
-      let fx = this.vel.x;
-      let fz = this.vel.z;
-      const h = Math.hypot(fx, fz);
-      if (h > 3) {
-        fx /= h;
-        fz /= h;
-      } else {
-        fx = -n.x;
-        fz = -n.z;
-      }
-      this.vel.set(fx * LAUNCH.pointLaunchForward, LAUNCH.pointLaunchUp, fz * LAUNCH.pointLaunchForward);
-      this.state = 'air';
-      this.wallCooldown = LAUNCH.noWallGrab;
-      this.jolt += 0.45;
-      this.pointLaunches++;
+      this.pointLaunch();
     } else if (this.zipLand) {
-      // Pop up and over the edge onto the roof.
+      // Pop up and over the edge onto the roof. Space in the next moment still launches.
       this.vel.set(-n.x * LAUNCH.zipPopIn, LAUNCH.zipPopUp, -n.z * LAUNCH.zipPopIn);
       this.state = 'air';
+      this.launchGrace = LAUNCH.pointLaunchGrace;
+      this.graceKind = 'launch';
+    } else if (this.zipLaunchQueued) {
+      this.wallBounce(n);
     } else {
       // Snap the last few centimeters so we're actually touching the wall.
       if (this.pos.distanceTo(this.zipDest) < 1.5) this.pos.copy(this.zipDest);
       this.vel.set(0, 0, 0);
       this.wallNormal.copy(n);
       this.state = 'wall';
+      this.launchGrace = LAUNCH.pointLaunchGrace;
+      this.graceKind = 'bounce';
     }
     this.swingCooldown = SWING.cooldown;
+  }
+
+  /**
+   * Bounce off a wall like a reflection: the zip's direction mirrored across
+   * the wall (angle in = angle out), keeping most of the zip's speed.
+   */
+  private wallBounce(n: THREE.Vector3): void {
+    const d = _tmp.copy(this.zipHeading);
+    const into = d.dot(n);
+    if (into < 0) d.addScaledVector(n, -2 * into); // reflect: r = d - 2(d·n)n
+    else d.addScaledVector(n, 0.5).normalize(); // already moving away: just push off
+    this.vel.copy(d).multiplyScalar(LAUNCH.zipSpeed * LAUNCH.wallBounceSpeedScale);
+    this.state = 'air';
+    this.zipLaunchQueued = false;
+    this.launchGrace = 0;
+    this.wallCooldown = WALL.cooldown;
+    this.swingCooldown = SWING.cooldown;
+    this.jolt += 0.4;
+    this.wallBounces++;
   }
 
   // ---------------------------------------------------------------- wall running
@@ -799,4 +1035,25 @@ export class PlayerController {
       this.onGround = true;
     }
   }
+}
+
+/**
+ * Point on segment (x0,y0,z0)-(x1,y1,z1) closest to the ray o + t*d (t >= 0).
+ * Written into `out`.
+ */
+function closestOnSegmentToRay(
+  x0: number, y0: number, z0: number,
+  x1: number, y1: number, z1: number,
+  o: THREE.Vector3, d: THREE.Vector3, out: THREE.Vector3,
+): void {
+  const ux = x1 - x0, uy = y1 - y0, uz = z1 - z0;
+  const wx = x0 - o.x, wy = y0 - o.y, wz = z0 - o.z;
+  const a = ux * ux + uy * uy + uz * uz;
+  const b = ux * d.x + uy * d.y + uz * d.z;
+  const dd = ux * wx + uy * wy + uz * wz;
+  const e = d.x * wx + d.y * wy + d.z * wz;
+  const denom = a - b * b; // d is unit length
+  let s = denom > 1e-6 ? (b * e - dd) / denom : 0;
+  s = s < 0 ? 0 : s > 1 ? 1 : s;
+  out.set(x0 + ux * s, y0 + uy * s, z0 + uz * s);
 }

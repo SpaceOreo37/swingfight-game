@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { NET, NET_STATES, type NetEvent, type NetState, type PlayerInfo } from '@game/shared';
+import { COMBAT, NET, NET_STATES, type NetEvent, type NetState, type PlayerInfo } from '@game/shared';
 import { Avatar } from '../game/Avatar';
 import { Nametag } from '../game/Nametag';
 import { WebLine } from '../game/WebLine';
@@ -17,7 +17,7 @@ const _zipTo = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 
 /** Everything needed to draw one other player. */
-class RemotePlayer {
+export class RemotePlayer {
   readonly buffer = new SnapshotBuffer();
   readonly group = new THREE.Group();
   readonly avatar: Avatar;
@@ -26,15 +26,19 @@ class RemotePlayer {
   private readonly zipWeb = new WebLine();
   private readonly thwipWeb = new WebLine();
   private thwipAge = Infinity;
+  /** Health 0..maxHp, and seconds left downed. */
+  hp: number = COMBAT.maxHp;
+  downTime = 0;
+  ko = false;
+  /** Where we last drew their feet (also used as the target point for attacks). */
   private readonly thwipTo = new THREE.Vector3();
-  /** Last drawn position (for the minimap); null until the first snapshot. */
   readonly drawn = new THREE.Vector3();
   hasPosition = false;
 
   constructor(readonly info: PlayerInfo) {
     this.avatar = new Avatar(info.color);
     this.tag = new Nametag(info.name, info.color);
-    this.group.add(this.avatar.root, this.web.mesh, this.zipWeb.mesh, this.thwipWeb.mesh, this.tag.sprite);
+    this.group.add(this.avatar.root, this.web.mesh, this.zipWeb.mesh, this.thwipWeb.mesh, this.tag.sprite, this.tag.healthBar);
     this.group.visible = false; // until we know where they are
   }
 
@@ -45,8 +49,15 @@ class RemotePlayer {
     }
   }
 
+  /** Show a shot / punch from their left hand. */
+  punch(): void {
+    this.thwipAge = Math.min(this.thwipAge, 0);
+  }
+
   update(renderTime: number, dt: number, camera: THREE.Camera): void {
     this.thwipAge += dt;
+    this.downTime = Math.max(0, this.downTime - dt);
+    this.tag.setHealth(this.hp / COMBAT.maxHp);
     const s = this.buffer.sample(renderTime);
     if (!s) return;
     this.group.visible = true;
@@ -64,7 +75,7 @@ class RemotePlayer {
     const onWall = state === 'wall' && s.w;
     if (onWall) _wall.set(s.w![0], 0, s.w![1]);
 
-    this.avatar.update(_pos, s.y, webbed ? _rope : null, onWall ? _wall : null, _vel, dt, state === 'charge', this.thwipAge);
+    this.avatar.update(_pos, s.y, webbed ? _rope : null, onWall ? _wall : null, _vel, dt, state === 'charge', this.thwipAge, this.downTime > 0 || this.ko);
 
     // Webs, same rules as the local player in third person.
     if (webbed) {
@@ -134,6 +145,21 @@ export class RemotePlayers {
   update(serverNow: number, dt: number, camera: THREE.Camera): void {
     const renderTime = serverNow - NET.interpDelayMs;
     for (const p of this.players.values()) p.update(renderTime, dt, camera);
+  }
+
+  get(id: string): RemotePlayer | undefined {
+    return this.players.get(id);
+  }
+
+  /** Everyone you could attack right now. */
+  *targets(): IterableIterator<RemotePlayer> {
+    for (const p of this.players.values()) if (p.hasPosition && !p.ko) yield p;
+  }
+
+  /** Where a player is drawn right now (feet), or null. */
+  positionOf(id: string): THREE.Vector3 | null {
+    const p = this.players.get(id);
+    return p && p.hasPosition ? p.drawn : null;
   }
 
   /** Positions and colors for the minimap. */

@@ -60,6 +60,14 @@ export const SWING = {
   minAnchorHeight: 4,
   minDist: 8,
   maxDist: 60,
+  /** Third person aims this much (radians) above the camera's center, like a crosshair over the character. */
+  aimRaise: 0.3,
+  /** Swinging aims this much higher than where you look (radians); zipping (C) aims exactly. */
+  swingAimLift: 0.5,
+  /** When aiming (slow, or holding C), ignore edges further than this from the aim (radians). */
+  maxAimAngle: 0.8,
+  /** At high speed, up to this much of the choice comes from the physics-friendly spot (0-1). */
+  physicsBlendMax: 0.7,
   /** Keeps the marker from flickering between two similar points (lower = stickier). */
   stickiness: 0.7,
 
@@ -122,11 +130,11 @@ export const SWING = {
   travelWeight: 0.3,
 };
 
-/** Web thwip (Tab): a quick web that yanks you toward where you're looking. */
+/** Web thwip (Tab): a quick web that yanks you horizontally toward where you're looking (never upward). */
 export const THWIP = {
-  /** Speed added on top of your current speed (m/s). */
-  boost: 6,
-  /** Even from a standstill, you leave at least this fast. */
+  /** Horizontal speed added on top of your current horizontal speed (m/s). */
+  boost: 12,
+  /** Even from a standstill, you leave at least this fast (horizontally). */
   minSpeed: 14,
   /** Seconds between thwips. */
   cooldown: 0.6,
@@ -167,12 +175,15 @@ export const WALL = {
 
 /** Anchor key (C) + web: a charged launch from the ground, or zip-to-point in the air. */
 export const LAUNCH = {
-  /** Launch speed at full power (m/s). ~60m straight up with this game's gravity. */
+  /** Launch speed at full power (m/s). */
   maxSpeed: 55,
   /** Even a tap gives this much. */
   minSpeed: 8,
-  /** How much the launch leans toward the web point (0 = straight up, 1 = 45 degrees). Low keeps you off the wall. */
-  sideways: 0.3,
+  /**
+   * The launch flies toward the web point, aimed like a thrown ball so the
+   * arc passes this far above the point (m), landing you right at the edge.
+   */
+  aimAbove: 1.5,
   /** Charge curve (seconds held): 0..rampStart weak, rampStart..fullAt ramps up, fullAt..overchargeAt max, after that overcharged. */
   rampStart: 1,
   fullAt: 3,
@@ -181,8 +192,12 @@ export const LAUNCH = {
   weakPower: 0.2,
   /** Power when held too long (fraction of max). */
   overchargePower: 0.5,
-  /** Seconds after a launch before you can stick to a wall. */
-  noWallGrab: 1.2,
+  /** Seconds after a launch before you can stick to a wall (so you don't grab the wall you started next to). */
+  noWallGrab: 0.3,
+  /** Zip strike (C + left-click at a player): speed, give-up time, and how close counts as a hit. */
+  strikeSpeed: 65,
+  strikeMaxTime: 1.6,
+  strikeConnect: 2.2,
   /** Zip-to-point travel speed (m/s). */
   zipSpeed: 55,
   /** Give up on a zip after this long (something in the way). */
@@ -194,8 +209,16 @@ export const LAUNCH = {
    * Point launch: press Space during a zip to a roof edge and you get flung
    * up and onward from the edge instead of landing (m/s).
    */
-  pointLaunchUp: 32,
-  pointLaunchForward: 16,
+  pointLaunchSpeed: 42,
+  /** The launch always points at least this much upward (0-1) so you clear the edge. */
+  pointLaunchMinUp: 0.45,
+  /**
+   * Wall bounce: press Space during a zip that ends on a wall and you reflect
+   * off it like a ball (angle in = angle out), at this fraction of zip speed.
+   */
+  wallBounceSpeedScale: 0.8,
+  /** A Space press up to this long AFTER arriving still counts (s). */
+  pointLaunchGrace: 0.2,
 };
 
 /** Launch power (0..1) for a charge held this many seconds. */

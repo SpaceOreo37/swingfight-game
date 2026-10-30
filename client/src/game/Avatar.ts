@@ -10,6 +10,7 @@ const _bodyUp = new THREE.Vector3();
 const _back = new THREE.Vector3();
 const _right = new THREE.Vector3();
 const _m = new THREE.Matrix4();
+const _down = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2 * 0.92);
 
 /** Placeholder character built from primitives. Swap for a real model later. */
 export class Avatar {
@@ -67,6 +68,7 @@ export class Avatar {
     dt: number,
     charging = false,
     thwipAge = Infinity,
+    downed = false,
   ): void {
     this.root.position.set(pos.x, pos.y + CENTER, pos.z);
 
@@ -85,6 +87,8 @@ export class Avatar {
       if (ropeDir && !charging) _tiltQ.setFromUnitVectors(UP, ropeDir);
       else _tiltQ.identity();
       _target.multiplyQuaternions(_tiltQ, _yawQ);
+      // Yanked to the floor: lying face down.
+      if (downed) _target.multiply(_down);
     }
     this.root.quaternion.slerp(_target, Math.min(1, dt * 12));
 

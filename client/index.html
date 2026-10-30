@@ -4,6 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>The Swingfight Game</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body>
     <div id="app"></div>
@@ -16,55 +19,115 @@
       </div>
       <div id="stats"></div>
       <div id="controls">
-        WASD move · Shift sprint · Space jump · Right-click (in air) swing to the marker · Tab thwip · C + right-click: launch (ground) / zip (air) · Run into walls to climb · V camera · R respawn · Esc menu
+        WASD move · Shift sprint · Space jump · Right-click (in air) swing to the marker · Left-click shoot · E yank · C+left zip strike · Tab thwip · C + right-click: launch / zip · Run into walls to climb · V camera · R respawn · Esc menu
       </div>
     </div>
     <div id="overlay">
-      <div class="panel">
-        <h1>The Swingfight Game</h1>
-        <label>
-          Your name
-          <input id="name-input" maxlength="16" placeholder="Enter a name" autocomplete="off" />
-        </label>
-        <label>
-          Room (friends join the same room)
-          <input id="room-input" maxlength="24" placeholder="main" autocomplete="off" />
-        </label>
-        <label>
-          Mouse sensitivity <span id="sens-value">1.0</span>
-          <input id="sens-input" type="range" min="0.3" max="3" step="0.1" value="1" />
-        </label>
-        <label>
-          Camera
-          <select id="view-input">
-            <option value="third">Third person</option>
-            <option value="first">First person</option>
-          </select>
-        </label>
-        <label>
-          Graphics quality
-          <select id="quality-input">
-            <option value="high">High</option>
-            <option value="medium">Medium</option>
-            <option value="low">Low (no shadows)</option>
-          </select>
-        </label>
-        <label class="check">
-          <input id="raw-input" type="checkbox" checked />
-          Raw mouse input (turn off if looking around feels choppy)
-        </label>
-        <button id="play-btn">Play</button>
-        <div class="keys">
-          <div><b>WASD</b> move</div>
-          <div><b>Shift</b> sprint</div>
-          <div><b>Space</b> jump · jump off a swing</div>
-          <div><b>Right-click (hold, in the air)</b> web swing to the marker</div>
-          <div><b>Tab</b> web thwip toward where you look</div>
-          <div><b>C + right-click</b> on the ground: charge a launch (hold 3–4s for max, release to fly) · in the air: zip to the marker</div>
-          <div><b>Walls</b> run/swing into one to stick: push toward it to climb, sideways to run, away to drop, Space to wall-jump</div>
-          <div><b>Left-click</b> attack (coming soon)</div>
-          <div><b>V</b> switch first / third person · <b>R</b> respawn · <b>Esc</b> menu</div>
-        </div>
+      <div class="home-shade"></div>
+      <div class="home">
+        <section class="brand">
+          <svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
+            <g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+              <path d="M32 4v56M4 32h56M12 12l40 40M52 12 12 52" />
+              <path d="M32 14l12.7 5.3L50 32l-5.3 12.7L32 50l-12.7-5.3L14 32l5.3-12.7z" />
+              <path d="M32 23l6.4 2.6L41 32l-2.6 6.4L32 41l-6.4-2.6L23 32l2.6-6.4z" />
+            </g>
+          </svg>
+          <p class="kicker" id="home-kicker">Swing · Fight · With friends</p>
+          <h1 class="title">The<br />Swingfight<br />Game</h1>
+          <p class="server-status" id="server-status"><span class="led"></span><span id="server-status-text">Checking server…</span></p>
+          <details class="cheatsheet">
+            <summary>Controls</summary>
+            <div class="keys">
+              <div><span class="k"><kbd>WASD</kbd></span><span>Move · <kbd>Shift</kbd> sprint · <kbd>Space</kbd> jump</span></div>
+              <div><span class="k"><kbd>Right-click</kbd></span><span>Hold in the air to swing at the ◆ marker</span></div>
+              <div><span class="k"><kbd>Tab</kbd></span><span>Thwip: horizontal boost where you look</span></div>
+              <div><span class="k"><kbd>C</kbd>+<kbd>Right</kbd></span><span>Ground: charge a launch (3–4 s = max) · Air: zip to the marker (Space mid-zip = launch / bounce)</span></div>
+              <div><span class="k"><kbd>Walls</kbd></span><span>Run into one to stick · push in to climb · Space to wall-jump</span></div>
+              <div><span class="k"><kbd>Left-click</kbd></span><span>Web shots at the crosshair (hold)</span></div>
+              <div><span class="k"><kbd>E</kbd></span><span>Yank the player under the crosshair to the floor</span></div>
+              <div><span class="k"><kbd>C</kbd>+<kbd>Left</kbd></span><span>Zip strike · on a yanked player: fatal slam</span></div>
+              <div><span class="k"><kbd>Fly into</kbd></span><span>Swing kick (faster = harder)</span></div>
+              <div><span class="k"><kbd>V</kbd></span><span>First / third person · <kbd>R</kbd> respawn · <kbd>Esc</kbd> pause</span></div>
+            </div>
+          </details>
+        </section>
+
+        <section class="card">
+          <div class="field-row">
+            <label class="field">
+              <span class="label">Name</span>
+              <input id="name-input" maxlength="16" placeholder="Your name" autocomplete="off" spellcheck="false" />
+            </label>
+            <label class="field">
+              <span class="label">Room</span>
+              <div class="with-button">
+                <input id="room-input" maxlength="24" placeholder="main" autocomplete="off" spellcheck="false" />
+                <button type="button" id="invite-btn" class="ghost" title="Copy a link friends can open to join this room">Copy invite</button>
+              </div>
+            </label>
+          </div>
+
+          <div class="group">
+            <span class="label">Mode <em>set by whoever opens the room</em></span>
+            <div class="modes">
+              <label class="mode-card">
+                <input type="radio" name="mode" value="brawl" checked />
+                <span class="mode-body">
+                  <span class="mode-icon">⚔️</span>
+                  <span class="mode-name">Brawl</span>
+                  <span class="mode-desc">Free-roam city. Fight anyone.</span>
+                </span>
+              </label>
+              <label class="mode-card">
+                <input type="radio" name="mode" value="training" />
+                <span class="mode-body">
+                  <span class="mode-icon">🎯</span>
+                  <span class="mode-name">Training</span>
+                  <span class="mode-desc">Practice on dummies, solo.</span>
+                </span>
+              </label>
+              <label class="mode-card">
+                <input type="radio" name="mode" value="tag" />
+                <span class="mode-body">
+                  <span class="mode-icon">🏃</span>
+                  <span class="mode-name">Tag</span>
+                  <span class="mode-desc">Hit to pass "it". Least time wins.</span>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <div class="settings">
+            <div class="setting">
+              <span class="label">Camera</span>
+              <div class="segmented">
+                <label><input type="radio" name="view" value="third" checked /><span>Third person</span></label>
+                <label><input type="radio" name="view" value="first" /><span>First person</span></label>
+              </div>
+            </div>
+            <div class="setting">
+              <span class="label">Graphics</span>
+              <div class="segmented">
+                <label><input type="radio" name="quality" value="high" checked /><span>High</span></label>
+                <label><input type="radio" name="quality" value="medium" /><span>Medium</span></label>
+                <label><input type="radio" name="quality" value="low" /><span>Low</span></label>
+              </div>
+            </div>
+            <div class="setting">
+              <span class="label">Mouse sensitivity <b id="sens-value">1.0</b></span>
+              <input id="sens-input" type="range" min="0.3" max="3" step="0.1" value="1" />
+            </div>
+            <label class="setting toggle">
+              <span class="label">Raw mouse input <em>turn off if looking around feels choppy</em></span>
+              <input id="raw-input" type="checkbox" checked />
+              <span class="switch"></span>
+            </label>
+          </div>
+
+          <button id="play-btn" class="enter">Enter</button>
+          <p class="hint" id="enter-hint">Press <kbd>Enter</kbd> · <kbd>Esc</kbd> pauses in game</p>
+        </section>
       </div>
     </div>
     <div id="charge" class="hidden">
@@ -76,6 +139,16 @@
       </div>
       <div id="charge-label"></div>
     </div>
+    <div id="hurt"></div>
+    <div id="crosshair"><div class="dot"></div></div>
+    <div id="hitmarker"></div>
+    <div id="hp-box" class="hidden"><div id="hp-fill"></div></div>
+    <div id="killfeed"></div>
+    <div id="mode-badge" class="hidden"></div>
+    <div id="tag-panel" class="hidden"></div>
+    <div id="big-msg"></div>
+    <div id="ko-screen" class="hidden"><div class="ko-title">KNOCKED OUT</div><div id="ko-text"></div></div>
+    <div id="launch-cue" class="hidden">LAUNCH!</div>
     <div id="notice" class="hidden"></div>
     <div id="crash" class="hidden">
       <div class="panel">

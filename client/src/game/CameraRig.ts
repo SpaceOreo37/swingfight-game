@@ -3,6 +3,8 @@ import { CAMERA_FX, type Box, type CityCollider } from '@game/shared';
 
 export type ViewMode = 'third' | 'first';
 
+/** Third person looks this far above the hero's head, so they sit lower on screen. */
+const FRAME_ABOVE = 1.8;
 /** Eye height above the feet in first person. */
 const EYE = 1.65;
 
@@ -129,7 +131,8 @@ export class CameraRig {
     }
     // G-force lag: only when there's room (no wall right behind us).
     if (d > 2) this.camera.position.add(this.lag);
-    this.camera.lookAt(this.focus);
+    // Frame the hero a little low, with more of the city (and web points) above.
+    this.camera.lookAt(this.focus.x, this.focus.y + FRAME_ABOVE, this.focus.z);
   }
 
   /** Smooth noise shake: impacts (trauma) plus a constant rumble at high speed. */

@@ -11,6 +11,8 @@ import { SpeedLines } from '../ui/SpeedLines';
 import { Network, type NetStatus } from '../net/Network';
 import { RemotePlayers } from '../net/RemotePlayers';
 import { Nametag } from './Nametag';
+import { CombatClient } from '../combat/CombatClient';
+import { CombatHud } from '../combat/CombatHud';
 import { buildCity } from './CityRenderer';
 import { Hud, type Quality, type View } from '../ui/Hud';
 import { Minimap } from '../ui/Minimap';
@@ -45,6 +47,8 @@ export class Game {
   private readonly zipTo = new THREE.Vector3();
   private readonly side = new THREE.Vector3();
   private readonly aimDir = new THREE.Vector3();
+  /** Marker aim: camera direction (third person: raised a bit, like a crosshair above the hero). */
+  private readonly markerDir = new THREE.Vector3();
   private readonly marker = new SwingMarker();
   private readonly rig: CameraRig;
   private readonly input: Input;
@@ -56,6 +60,9 @@ export class Game {
 
   // Multiplayer.
   private readonly remotes: RemotePlayers;
+  private readonly combat: CombatClient;
+  private readonly shotHand = new THREE.Vector3();
+  private readonly camRight = new THREE.Vector3();
   private readonly net: Network;
   private sendTimer = 0;
   private lastThwipCount = 0;
@@ -109,8 +116,9 @@ export class Game {
 
     this.remotes = new RemotePlayers(this.scene);
     this.net = new Network({
-      welcome: (me, players, room) => {
+      welcome: (me, players, room, mode, hp) => {
         this.remotes.reset(players);
+        this.combat.reset(mode, hp);
         this.avatar.setColor(me.color);
         this.arms.setColor(me.color);
         this.hud.setPlayerLabel(me.name, room);
@@ -120,9 +128,20 @@ export class Game {
       state: (id, t, s) => this.remotes.pushState(id, t, s),
       event: (id, _t, e) => this.remotes.event(id, e),
       status: (status, message) => this.onNetStatus(status, message),
+      game: (m) => this.combat.onMessage(m),
     });
 
     this.rig = new CameraRig(this.camera, collider);
+    this.combat = new CombatClient(
+      this.scene,
+      collider,
+      this.city,
+      this.net,
+      this.remotes,
+      this.player,
+      new CombatHud(),
+      (amount) => this.rig.addTrauma(amount),
+    );
     // First-person arms ride on the camera, so the camera must be in the scene.
     this.camera.add(this.arms.root);
     this.scene.add(this.camera);
@@ -138,7 +157,7 @@ export class Game {
       this.input.rawMouse = settings.rawMouse;
       this.applyQuality(settings.quality);
       this.setView(settings.view);
-      this.net.connect(settings.name, settings.room);
+      this.net.connect(settings.name, settings.room, settings.mode);
       this.input.requestLock();
     });
     this.input.onLockFailed = () =>
@@ -259,7 +278,7 @@ export class Game {
 
     const { dx, dy } = input.takeMouseDelta();
     this.rig.rotate(dx, dy);
-    if (input.consume('respawn')) this.respawn();
+    if (input.consume('respawn') && !player.frozen) this.respawn();
     if (input.consume('view')) {
       const next = this.rig.mode === 'first' ? 'third' : 'first';
       this.setView(next);
@@ -267,9 +286,21 @@ export class Game {
       this.noticeTimer = 1.5;
     }
     if (this.noticeTimer > 0 && (this.noticeTimer -= dt) <= 0) this.hud.showNotice(null);
-    input.consume('attack'); // reserved for combat; drop presses for now
+    // Combat buttons: left-click shoots; C + left-click is a zip strike; E yanks.
+    const anchorDown = input.down('anchor');
+    const attackPressed = input.consume('attack');
+    const combatInput = {
+      fireHeld: input.down('attack') && !anchorDown,
+      strikePressed: attackPressed && anchorDown,
+      yankPressed: input.consume('yank'),
+    };
 
     this.camera.getWorldDirection(this.aimDir);
+    // First person: the marker aims exactly where you look. Third person: the
+    // controller derives the aim from your look direction (yaw/pitch), since
+    // the camera is framed above the hero.
+    const fpAim = this.rig.mode === 'first';
+    this.markerDir.copy(this.aimDir);
     this.accumulator += dt;
     while (this.accumulator >= FIXED_DT) {
       player.step(
@@ -285,6 +316,8 @@ export class Game {
           thwipPressed: input.consume('thwip'),
           anchorHeld: input.down('anchor'),
           aimDir: this.aimDir,
+          markerOrigin: fpAim ? this.camera.position : undefined,
+          markerDir: fpAim ? this.markerDir : undefined,
         },
         FIXED_DT,
       );
@@ -307,9 +340,16 @@ export class Game {
     const speed = player.vel.length();
     this.rig.addTrauma(player.jolt);
     player.jolt = 0;
-    this.rig.update(this.renderPos, player.vel, dt);
+    if (this.hud.hasEntered) this.rig.update(this.renderPos, player.vel, dt);
+    else this.attractCamera(dt); // home screen: slow flight over the skyline
     this.camera.updateMatrixWorld();
     const firstPerson = this.rig.mode === 'first';
+
+    // Left-arm punch for thwips and web shots (whichever was most recent).
+    const shotNewer = this.combat.shotAge < player.thwipAge;
+    const punchAge = Math.min(player.thwipAge, this.combat.shotAge);
+    const punchPoint = shotNewer ? this.combat.shotPoint : player.thwipPoint;
+    const downed = player.downTime > 0 || player.frozen;
 
     // Web strand to the anchor while swinging, charging a launch, or zipping.
     const swinging = player.state === 'swing' || player.state === 'charge' || player.state === 'zip';
@@ -320,8 +360,8 @@ export class Game {
         {
           state: player.state,
           anchor: swinging ? player.anchor : null,
-          thwipAge: player.thwipAge,
-          thwipPoint: player.thwipPoint,
+          thwipAge: punchAge,
+          thwipPoint: punchPoint,
           speed,
           moving: player.state === 'ground' && Math.hypot(player.vel.x, player.vel.z) > 1,
         },
@@ -338,7 +378,8 @@ export class Game {
         player.vel,
         dt,
         player.state === 'charge',
-        player.thwipAge,
+        punchAge,
+        downed,
       );
       if (swinging) this.handPos.copy(this.renderPos).addScaledVector(this.ropeDir, 1.9);
       if (player.state === 'charge') this.handPos.set(this.renderPos.x + 0.1, this.renderPos.y + 1.85, this.renderPos.z); // raised hand while crouched
@@ -360,9 +401,23 @@ export class Game {
     // Thwip strand: visible for a split second after firing.
     this.thwipWeb.update(this.thwipFrom, player.thwipAge < 0.18 ? player.thwipPoint : null);
 
+    // Combat: web shots leave from the left (punching) hand.
+    if (firstPerson) this.arms.leftHandWorld(this.shotHand);
+    else {
+      this.camRight.setFromMatrixColumn(this.camera.matrixWorld, 0);
+      this.shotHand.set(this.renderPos.x, this.renderPos.y + 1.45, this.renderPos.z).addScaledVector(this.camRight, -0.4);
+    }
+    this.combat.update(dt, combatInput, this.camera, this.shotHand);
+
     // Marker is "ready" when a click would do something: in the air, or on the ground with C held.
-    const markerReady = player.state !== 'ground' || input.down('anchor');
-    this.marker.update(player.hasTarget && player.state !== 'zip' ? player.target : null, markerReady, dt);
+    const anchorHeld = input.down('anchor');
+    const markerReady = player.state !== 'ground' || anchorHeld;
+    this.marker.update(
+      player.hasTarget && player.state !== 'zip' ? player.target : null,
+      !markerReady ? 'idle' : anchorHeld ? 'anchor' : 'ready',
+      dt,
+    );
+    this.hud.setLaunchCue(player.state === 'zip' && player.zipLaunchQueued ? (player.zipToRoof ? 'LAUNCH!' : 'BOUNCE!') : null);
     this.hud.setCharge(player.state === 'charge' ? player.chargeTime : null);
     this.speedLines.update(speed, dt);
 
@@ -407,6 +462,22 @@ export class Game {
         return 'refused';
       default:
         return 'offline';
+    }
+  }
+
+  /** Home-screen backdrop: a slow orbit around the skyscraper district. */
+  private attractTime = 0;
+  private attractCamera(dt: number): void {
+    this.attractTime += dt;
+    const t = this.attractTime * 0.04 + 0.6;
+    const cx = this.city.spawn.x - 20;
+    const cz = this.city.spawn.z - 40;
+    const r = 240;
+    this.camera.position.set(cx + Math.cos(t) * r, 120 + Math.sin(t * 0.7) * 25, cz + Math.sin(t) * r);
+    this.camera.lookAt(cx, 70, cz);
+    if (this.camera.fov !== 55) {
+      this.camera.fov = 55;
+      this.camera.updateProjectionMatrix();
     }
   }
 

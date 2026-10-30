@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { randomBytes } from 'node:crypto';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 import {
+  CityCollider,
   generateCity,
   NET,
   PROTOCOL_VERSION,
@@ -27,7 +28,7 @@ export interface GameServerOptions {
 export interface RunningServer {
   port: number;
   close(): Promise<void>;
-  stats(): { rooms: number; players: number };
+  stats(): { rooms: number; players: number; shots: number };
 }
 
 /** Close codes we send (4000-4999 are free for apps). */
@@ -49,6 +50,8 @@ export function startGameServer(opts: GameServerOptions): Promise<RunningServer>
 
   // Positions outside the island (plus margin) are impossible: reject them.
   const city = generateCity(WORLD_SEED);
+  // Same collision world the clients use: for web shots, line-of-sight checks and dummies.
+  const collider = new CityCollider([...city.buildings, ...city.sidewalks]);
   const boundX = city.halfX + 100;
   const boundZ = city.halfZ + 100;
 
@@ -70,8 +73,12 @@ export function startGameServer(opts: GameServerOptions): Promise<RunningServer>
 
   function stats() {
     let players = 0;
-    for (const r of rooms.values()) players += r.size;
-    return { rooms: rooms.size, players };
+    let shots = 0;
+    for (const r of rooms.values()) {
+      players += r.size;
+      shots += r.combat.shotCount;
+    }
+    return { rooms: rooms.size, players, shots };
   }
 
   function newId(): string {
@@ -111,7 +118,7 @@ export function startGameServer(opts: GameServerOptions): Promise<RunningServer>
       clients.delete(client);
       const room = client.room;
       if (room) {
-        room.remove(client);
+        room.remove(client, now());
         log(`leave  ${client.info?.name} (${client.id}) room=${room.name} players=${room.size}`);
         if (room.size === 0) rooms.delete(room.name);
       }
@@ -141,7 +148,8 @@ export function startGameServer(opts: GameServerOptions): Promise<RunningServer>
           client.socket.close(CLOSE.full, 'Server full');
           return;
         }
-        room = new Room(roomName);
+        // Whoever creates a room picks its mode.
+        room = new Room(roomName, msg.mode, collider, city);
         rooms.set(roomName, room);
       }
       if (room.isFull) {
@@ -151,16 +159,27 @@ export function startGameServer(opts: GameServerOptions): Promise<RunningServer>
       }
       client.info = { id: client.id, name: room.uniqueName(sanitizeName(msg.name)), color: room.pickColor() };
       client.room = room;
-      const others = [...room.clients.values()].map((c) => c.info!).filter(Boolean);
-      room.add(client);
-      client.send({ t: 'welcome', you: client.info, seed: WORLD_SEED, room: room.name, players: others, time: t });
+      const others = [...room.actors()].map((c) => c.info!).filter(Boolean);
+      room.add(client, t);
+      client.send({
+        t: 'welcome',
+        you: client.info,
+        seed: WORLD_SEED,
+        room: room.name,
+        mode: room.mode,
+        players: others,
+        hp: room.hpSnapshot(),
+        time: t,
+      });
       room.broadcast({ t: 'join', player: client.info }, client);
       // Let the newcomer see everyone right away instead of waiting for movement.
-      const states = [...room.clients.values()]
+      const states = [...room.actors()]
         .filter((c) => c !== client && c.state)
         .map((c) => [c.id, c.stateTime, c.state!] as [string, number, NetState]);
       if (states.length) client.send({ t: 'snap', time: t, states });
-      log(`join   ${client.info.name} (${client.id}) room=${room.name} players=${room.size}`);
+      const tag = room.combat.tagSnapshot();
+      if (tag) client.send(tag);
+      log(`join   ${client.info.name} (${client.id}) room=${room.name} mode=${room.mode} players=${room.size}`);
       return;
     }
 
@@ -175,6 +194,14 @@ export function startGameServer(opts: GameServerOptions): Promise<RunningServer>
     }
     if (msg.t === 'event') {
       room.broadcast({ t: 'event', id: client.id, time: t, e: msg.e }, client);
+      return;
+    }
+    if (msg.t === 'fire') {
+      room.combat.fire(client, msg, t);
+      return;
+    }
+    if (msg.t === 'act') {
+      room.combat.act(client, msg, t);
     }
   }
 
@@ -190,7 +217,7 @@ export function startGameServer(opts: GameServerOptions): Promise<RunningServer>
   // Fixed-rate broadcast, plus dropping silent connections.
   const tickTimer = setInterval(() => {
     const t = now();
-    for (const room of rooms.values()) room.tick(t);
+    for (const room of rooms.values()) room.tick(t, 1 / NET.tickRate);
     for (const c of clients) {
       if (t - c.lastMessageAt > NET.idleTimeoutMs) c.socket.close(CLOSE.idle, 'Idle');
     }

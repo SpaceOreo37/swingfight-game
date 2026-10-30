@@ -5,6 +5,7 @@ import {
   parseServerMessage,
   PROTOCOL_VERSION,
   type ClientMessage,
+  type GameMode,
   type NetEvent,
   type NetState,
   type PlayerInfo,
@@ -13,9 +14,14 @@ import {
 
 export type NetStatus = 'offline' | 'connecting' | 'online' | 'rejected';
 
+/** Combat / game messages from the server, passed straight through. */
+export type GameMessage = Extract<ServerMessage, { t: 'shot' | 'shotHit' | 'dmg' | 'ko' | 'respawn' | 'tag' }>;
+
 export interface NetHandlers {
-  /** Joined (or re-joined after a reconnect). `players` = everyone else already in the room. */
-  welcome(me: PlayerInfo, players: PlayerInfo[], room: string): void;
+  /** Joined (or re-joined after a reconnect). `players` = everyone else already in the room (incl. dummies). */
+  welcome(me: PlayerInfo, players: PlayerInfo[], room: string, mode: GameMode, hp: Record<string, number>): void;
+  /** Combat and mode messages. */
+  game(msg: GameMessage): void;
   join(player: PlayerInfo): void;
   leave(id: string): void;
   state(id: string, serverTime: number, state: NetState): void;
@@ -41,6 +47,8 @@ export class Network {
   private socket: WebSocket | null = null;
   private name = '';
   private wantRoom = '';
+  private wantMode: GameMode = 'brawl';
+  mode: GameMode = 'brawl';
   private wantConnected = false;
   private attempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -55,11 +63,12 @@ export class Network {
     window.addEventListener('pagehide', () => this.disconnect());
   }
 
-  /** Connect (or switch name/room). Safe to call repeatedly. */
-  connect(name: string, room: string): void {
-    const same = this.wantConnected && name === this.name && room === this.wantRoom;
+  /** Connect (or switch name/room/mode). Safe to call repeatedly. */
+  connect(name: string, room: string, mode: GameMode): void {
+    const same = this.wantConnected && name === this.name && room === this.wantRoom && mode === this.wantMode;
     this.name = name;
     this.wantRoom = room;
+    this.wantMode = mode;
     this.wantConnected = true;
     if (same && this.socket) return;
     this.closeSocket();
@@ -86,6 +95,20 @@ export class Network {
     this.send({ t: 'event', e });
   }
 
+  /** Web shot. `c` is our own id for it (the server echoes it back). */
+  sendFire(o: [number, number, number], d: [number, number, number], c: number): void {
+    this.send({ t: 'fire', o, d, vt: this.viewTime(), c });
+  }
+
+  sendAct(k: 'kick' | 'strike' | 'yank', target: string): void {
+    this.send({ t: 'act', k, target, vt: this.viewTime() });
+  }
+
+  /** The server time we're currently drawing other players at (for lag-compensated hits). */
+  viewTime(): number {
+    return this.serverNow() - NET.interpDelayMs;
+  }
+
   // ---------------------------------------------------------------- internals
 
   private url(): string {
@@ -108,7 +131,7 @@ export class Network {
     }
     this.socket = ws;
     ws.onopen = () => {
-      this.send({ t: 'hello', v: PROTOCOL_VERSION, name: this.name, room: this.wantRoom });
+      this.send({ t: 'hello', v: PROTOCOL_VERSION, name: this.name, room: this.wantRoom, mode: this.wantMode });
     };
     ws.onmessage = (ev) => {
       if (typeof ev.data !== 'string') return;
@@ -134,12 +157,13 @@ export class Network {
         this.attempt = 0;
         this.room = msg.room;
         this.me = msg.you;
+        this.mode = msg.mode;
         this.clockOffset = msg.time - performance.now();
         this.clockSynced = false;
         this.clockSamples.length = 0;
         this.startPing();
         this.setStatus('online');
-        this.handlers.welcome(this.me, msg.players, msg.room);
+        this.handlers.welcome(this.me, msg.players, msg.room, msg.mode, msg.hp);
         break;
       }
       case 'join':
@@ -156,6 +180,14 @@ export class Network {
         break;
       case 'pong':
         this.onPong(msg.c, msg.time);
+        break;
+      case 'shot':
+      case 'shotHit':
+      case 'dmg':
+      case 'ko':
+      case 'respawn':
+      case 'tag':
+        this.handlers.game(msg);
         break;
       case 'reject':
         this.setStatus('rejected', msg.message);

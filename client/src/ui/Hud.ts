@@ -1,3 +1,4 @@
+import type { GameMode } from '@game/shared';
 import { LAUNCH, launchPower } from '@game/shared';
 
 const NAME_KEY = 'swingfight.name';
@@ -6,6 +7,7 @@ const QUALITY_KEY = 'swingfight.quality';
 const RAW_KEY = 'swingfight.rawMouse';
 const VIEW_KEY = 'swingfight.view';
 const ROOM_KEY = 'swingfight.room';
+const MODE_KEY = 'swingfight.mode';
 
 export type Quality = 'high' | 'medium' | 'low';
 export type View = 'third' | 'first';
@@ -17,6 +19,7 @@ export interface Settings {
   rawMouse: boolean;
   view: View;
   room: string;
+  mode: GameMode;
 }
 
 /** Seconds of charge that fill the whole meter. */
@@ -38,7 +41,19 @@ function save(key: string, value: string): void {
   }
 }
 
-/** Start screen (name + settings) and the in-game overlay. */
+/** A group of radio buttons (mode cards, segmented toggles) read/written by value. */
+class RadioGroup<T extends string> {
+  constructor(private readonly name: string) {}
+  get value(): T {
+    return (document.querySelector<HTMLInputElement>(`input[name="${this.name}"]:checked`)?.value ?? '') as T;
+  }
+  set value(v: T) {
+    const el = document.querySelector<HTMLInputElement>(`input[name="${this.name}"][value="${v}"]`);
+    if (el) el.checked = true;
+  }
+}
+
+/** Home screen (doubles as the pause menu) and the in-game overlay. */
 export class Hud {
   private readonly stats = document.getElementById('stats')!;
   private readonly overlay = document.getElementById('overlay')!;
@@ -46,10 +61,16 @@ export class Hud {
   private readonly nameInput = document.getElementById('name-input') as HTMLInputElement;
   private readonly sensInput = document.getElementById('sens-input') as HTMLInputElement;
   private readonly sensValue = document.getElementById('sens-value')!;
-  private readonly qualityInput = document.getElementById('quality-input') as HTMLSelectElement;
+  private readonly qualityInput = new RadioGroup<Quality>('quality');
   private readonly rawInput = document.getElementById('raw-input') as HTMLInputElement;
-  private readonly viewInput = document.getElementById('view-input') as HTMLSelectElement;
+  private readonly viewInput = new RadioGroup<View>('view');
   private readonly roomInput = document.getElementById('room-input') as HTMLInputElement;
+  private readonly modeInput = new RadioGroup<GameMode>('mode');
+  private readonly inviteBtn = document.getElementById('invite-btn') as HTMLButtonElement;
+  private readonly kicker = document.getElementById('home-kicker')!;
+  private readonly serverStatus = document.getElementById('server-status')!;
+  private readonly serverStatusText = document.getElementById('server-status-text')!;
+  private entered = false;
   private readonly playBtn = document.getElementById('play-btn') as HTMLButtonElement;
   private readonly nameLabel = document.getElementById('player-name')!;
   readonly minimapCanvas = document.getElementById('minimap') as HTMLCanvasElement;
@@ -58,6 +79,8 @@ export class Hud {
   private readonly chargeFill = document.getElementById('charge-fill')!;
   private readonly chargeLabel = document.getElementById('charge-label')!;
   private chargeShown = false;
+  private readonly launchCue = document.getElementById('launch-cue')!;
+  private launchCueText: string | null = null;
 
   constructor() {
     const zone = (id: string, from: number, to: number) => {
@@ -78,8 +101,50 @@ export class Hud {
     this.qualityInput.value = q === 'medium' || q === 'low' ? q : 'high';
     this.rawInput.checked = load(RAW_KEY) !== 'false';
     this.viewInput.value = load(VIEW_KEY) === 'first' ? 'first' : 'third';
+    const mode = new URLSearchParams(location.search).get('mode') ?? load(MODE_KEY);
+    this.modeInput.value = mode === 'training' || mode === 'tag' ? mode : 'brawl';
     // A ?room=xyz link pre-fills the room, so you can send friends a direct link.
     this.roomInput.value = new URLSearchParams(location.search).get('room') ?? load(ROOM_KEY) ?? '';
+
+    this.inviteBtn.addEventListener('click', () => this.copyInvite());
+    document.body.classList.add('at-home');
+    this.pollServer();
+  }
+
+  /** Copy a link that opens this room and mode. Makes up a private room name if none. */
+  private async copyInvite(): Promise<void> {
+    if (!this.roomInput.value.trim()) this.roomInput.value = `crew-${Math.floor(Math.random() * 9000 + 1000)}`;
+    const url = `${location.origin}${location.pathname}?room=${encodeURIComponent(this.roomInput.value.trim())}&mode=${this.modeInput.value}`;
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(url);
+      ok = true;
+    } catch {
+      window.prompt('Copy this link and send it to your friends:', url);
+    }
+    this.inviteBtn.textContent = ok ? 'Copied!' : 'Copy invite';
+    setTimeout(() => (this.inviteBtn.textContent = 'Copy invite'), 1600);
+  }
+
+  /** "Server online · N playing" while the menu is open. */
+  private pollServer(): void {
+    const check = async () => {
+      try {
+        const res = await fetch('/health', { cache: 'no-store' });
+        if (!res.ok) throw new Error();
+        const h = (await res.json()) as { players?: number };
+        const n = h.players ?? 0;
+        this.serverStatus.className = 'server-status online';
+        this.serverStatusText.textContent = `Server online · ${n} ${n === 1 ? 'player' : 'players'} in game`;
+      } catch {
+        this.serverStatus.className = 'server-status offline';
+        this.serverStatusText.textContent = 'Server offline · you can still swing around solo';
+      }
+    };
+    check();
+    setInterval(() => {
+      if (!this.overlay.classList.contains('hidden')) check();
+    }, 5000);
   }
 
   /** Name (as the server made it unique) and room, under the minimap. */
@@ -112,6 +177,7 @@ export class Hud {
       save(RAW_KEY, String(this.rawInput.checked));
       save(VIEW_KEY, this.viewInput.value);
       save(ROOM_KEY, this.roomInput.value.trim());
+      save(MODE_KEY, this.modeInput.value);
       this.nameLabel.textContent = name;
       this.showNotice(null);
       fn({
@@ -121,19 +187,32 @@ export class Hud {
         rawMouse: this.rawInput.checked,
         view: this.viewInput.value as View,
         room: this.roomInput.value.trim(),
+        mode: this.modeInput.value as GameMode,
       });
     };
     this.playBtn.addEventListener('click', start);
-    for (const input of [this.nameInput, this.roomInput]) {
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') start();
-      });
-    }
+    // Enter anywhere on the menu enters the game.
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !this.overlay.classList.contains('hidden')) {
+        e.preventDefault();
+        start();
+      }
+    });
+  }
+
+  /** Whether the player has entered the game at least once (the menu then acts as a pause menu). */
+  get hasEntered(): boolean {
+    return this.entered;
   }
 
   setPlaying(playing: boolean): void {
     this.overlay.classList.toggle('hidden', playing);
-    this.playBtn.textContent = this.nameLabel.textContent ? 'Resume' : 'Play';
+    document.body.classList.toggle('at-home', !playing);
+    if (playing) this.entered = true;
+    const paused = !playing && this.entered;
+    document.body.classList.toggle('paused', paused);
+    this.kicker.textContent = paused ? 'Paused' : 'Swing · Fight · With friends';
+    this.playBtn.textContent = paused ? 'Resume' : 'Enter';
   }
 
   /**
@@ -165,6 +244,14 @@ export class Hud {
     this.chargeFill.style.width = `${pct}%`;
     this.chargeFill.style.background = color;
     this.chargeLabel.textContent = label;
+  }
+
+  /** "LAUNCH!" / "BOUNCE!" cue while Space is queued during a zip (null hides it). */
+  setLaunchCue(text: string | null): void {
+    if (text === this.launchCueText) return;
+    this.launchCueText = text;
+    if (text) this.launchCue.textContent = text;
+    this.launchCue.classList.toggle('hidden', !text);
   }
 
   /** A short message on top of the game (null hides it). */

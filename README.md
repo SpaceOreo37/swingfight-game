@@ -20,13 +20,17 @@ Enter a name, click **Play**.
 | Shift | sprint |
 | Space | jump · jump off a swing for a boost |
 | Right-click (hold) | web swing (in the air) at the marker. Keep holding to chain swings |
-| Tab | web thwip: yank toward where you're looking (keeps your speed + a little) |
-| C + right-click (ground) | charge a launch: web planted, meter fills. Release right-click or C to launch, mostly straight up. Power: 0–1s weak, 1–3s ramps up, **3–4s max**, over 4s drops to half |
+| Tab | web thwip: horizontal yank toward where you're looking (keeps your horizontal speed + a little, never lifts you) |
+| C + right-click (ground) | charge a launch: web planted, meter fills. Release right-click or C to launch toward the web point (aimed with gravity so the arc reaches it; weaker charges fall short). Power: 0–1s weak, 1–3s ramps up, **3–4s max**, over 4s drops to half |
 | C + right-click (air / wall) | zip to the marker point: lands you on top of a roof edge, or sticks you to the wall at a corner partway up |
 | Space during a zip to a roof edge | point launch: instead of landing, get flung up and onward off the edge |
+| Space during a zip to a wall | wall bounce: reflect off the wall like a ball (angle in = angle out) instead of sticking |
 | Walls | run, jump or swing into one to stick. Push toward it = climb, sideways = run along, away = drop, Space = wall-jump. You vault onto the roof at the top |
 | V | switch first / third person (also in the menu) |
-| Left-click | attack (reserved for combat) |
+| Left-click (hold) | web shot toward the crosshair (spammable) |
+| E | yank the player under the crosshair: rips them off their feet and slams them to the floor in front of you (downed for 3 s: slow, no webs) |
+| C + left-click | zip strike at the player under the crosshair. On a downed (yanked) player it's a fatal **slam** |
+| Fly/swing into someone fast | swing kick (automatic, damage grows with speed) |
 | R | respawn |
 | Esc | menu (name, mouse sensitivity) |
 
@@ -59,7 +63,7 @@ client/   The browser game (Vite + TypeScript + Three.js)
 Physics first, plus a few deliberate game-style assists:
 
 - **Forces:** gravity (2x Earth, like action games use, and a little extra while rising through the air), real air drag for a streamlined person, and a stretchy spider-silk web (Hooke's law with damping) that pulls but never pushes, and can go slack.
-- **Aim marker:** a diamond snaps to the building edge or corner your web will hit. Slow, it follows where you look. Moving, it picks a point that makes the web tight the instant it attaches. Look up or down to shift it. Faded = on the ground, bright = ready.
+- **Aim marker:** a big diamond on the building edge your web will hit, anywhere along any roof edge or corner (the nearest edge to where you aim). White = ready to swing (it aims a bit higher than you look, since swings need high points); gold = C held (zip/launch aims exactly where you look); faded = on the ground.
 - **One web per click, air only.** Click while airborne, or hold right-click and jump: it fires as you leave the ground.
 - **The web stays on until you let go of right-click.** Hold past the top and you swing back like a real pendulum.
 - **Release = momentum.** You leave with exactly the speed and direction you had at that moment: at the bottom you fly forward, on the upswing you fly up (and gravity pulls harder while rising).
@@ -111,6 +115,27 @@ Plan for when the city gets dense (props, cars, people, detailed buildings):
 2. Every incoming message goes through `parseClientMessage` / `parseServerMessage`. Add validation for new fields there.
 3. Add a test in `server/test/server.test.ts` for any new message, and run `npm test`.
 
+## Combat
+
+**Modes** (picked by whoever opens the room):
+- **Free-roam brawl:** the city with fighting on.
+- **Training:** five server-run dummies near spawn (standing, walking, flying). They take hits, get yanked and respawn exactly like players, so you can practice alone.
+- **Tag:** no damage. A hit from whoever is "it" passes it on (no instant tag-backs). The lowest time spent as "it" wins.
+
+**Rules** (numbers in `COMBAT` in [shared/src/protocol.ts](shared/src/protocol.ts)):
+- 100 HP. A knockout means a 3 s respawn, then 2 s of spawn protection.
+- **Web shot:** 5 damage plus a short slow.
+- **Swing kick:** 10 damage plus extra per m/s of speed, up to 45.
+- **Zip strike:** 30 damage.
+- **Yank:** 8 damage and downed for 3 s.
+- **Slam:** a zip strike on a downed player, 100 damage.
+
+**How hits work** (so it's fair and nothing piles up on the server):
+- **The server is the judge.** Web shots are simulated on the server. Each shot's lifetime is fixed when it's fired (it ends where it would hit a building, max 150 m), so shots can never accumulate.
+- **Lag compensation:** the server rewinds targets to where the attacker saw them (up to 400 ms back) using its position history.
+- **Close-range moves** (kick, strike, yank) are claims the server checks: range, line of sight, speed and cooldowns.
+- **Hit effects** (knockback, slow, downed) are applied by the victim's own client when the server says so.
+
 ## Game feel
 
 - **Camera shake:** a rumble that grows with speed, plus kicks from web catches, launches, thwips, wall impacts, hard landings and zip arrivals (`jolt` in the controller → `CameraRig.addTrauma`).
@@ -137,6 +162,7 @@ Generated from a seed in a few milliseconds, with no downloads:
 2. ✅ **Web swinging, name, minimap, perf pass** ← test & tune this
 3. ✅ **Bigger, more realistic city + wall running/climbing** (zip to point, corner wraps: later)
 4. ✅ **Multiplayer foundation:** rooms, smooth remote players, name tags, minimap dots, tests
-5. **Combat (PvP):** melee on left-click, dodge, web shots, health, server-checked hits
-6. **Feel polish:** animations, camera effects, gamepad, sound
-7. **Graphics upgrade:** real models, lighting, post-processing
+5. ✅ **Combat basics:** web shots, yank, zip strike / slam, swing kick, health, KOs, brawl / training / tag modes
+6. **Race mode**, cutting web lines with shots, more moves
+7. **Feel polish:** animations, camera effects, gamepad, sound
+8. **Graphics upgrade:** real models, lighting, post-processing

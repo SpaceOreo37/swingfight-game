@@ -7,6 +7,7 @@ export default defineConfig({
     // Multiplayer: forward the game socket to the server (npm run dev starts both).
     proxy: {
       '/ws': { target: 'ws://localhost:3001', ws: true },
+      '/health': { target: 'http://localhost:3001' },
     },
   },
   build: {

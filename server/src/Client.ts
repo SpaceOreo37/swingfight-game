@@ -1,23 +1,26 @@
 import type { WebSocket } from 'ws';
-import { encode, NET, type NetState, type PlayerInfo, type ServerMessage, type Vec3 } from '@game/shared';
+import { encode, NET, type HitFx, type NetState, type PlayerInfo, type ServerMessage, type Vec3 } from '@game/shared';
+import { newCombatFields, recordHistory, type Actor } from './Actor';
 import type { Room } from './Room';
 
 /** One connected socket, before and after it joins a room. */
-export class Client {
+export class Client implements Actor {
+  readonly isBot = false;
   info: PlayerInfo | null = null;
   room: Room | null = null;
 
-  /** Latest movement state and when the server received it. */
   state: NetState | null = null;
   stateTime = 0;
-  /** Changed since the last room tick. */
   stateDirty = false;
-  /**
-   * Recent positions with server timestamps. Not used yet: it's here so
-   * combat can check hits against where a player WAS when someone attacked
-   * (lag compensation) without changing the networking later.
-   */
   readonly history: { t: number; p: Vec3 }[] = [];
+
+  hp: number;
+  koUntil: number;
+  protectUntil: number;
+  downedUntil: number;
+  readonly cooldowns: Map<string, number>;
+  /** Web shots of ours still flying. */
+  shotsInFlight = 0;
 
   lastMessageAt: number;
   private tokens: number = NET.rateLimitBurst;
@@ -32,6 +35,12 @@ export class Client {
   ) {
     this.lastMessageAt = now;
     this.tokensAt = now;
+    const c = newCombatFields();
+    this.hp = c.hp;
+    this.koUntil = c.koUntil;
+    this.protectUntil = c.protectUntil;
+    this.downedUntil = c.downedUntil;
+    this.cooldowns = c.cooldowns;
   }
 
   get joined(): boolean {
@@ -46,6 +55,9 @@ export class Client {
     // 1 = OPEN. Never throw because one player's socket is closing.
     if (this.socket.readyState === 1) this.socket.send(data);
   }
+
+  /** Players apply hit effects on their own client (it receives the 'dmg' message). */
+  applyFx(_fx: HitFx, _now: number): void {}
 
   /** Token-bucket rate limit. Returns false if this message should be dropped. */
   allowMessage(now: number): boolean {
@@ -64,7 +76,6 @@ export class Client {
     this.state = state;
     this.stateTime = now;
     this.stateDirty = true;
-    this.history.push({ t: now, p: state.p });
-    while (this.history.length && this.history[0].t < now - NET.historyMs) this.history.shift();
+    recordHistory(this, now);
   }
 }

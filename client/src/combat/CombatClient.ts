@@ -37,6 +37,8 @@ export interface CombatInput {
 const FORWARD = new THREE.Vector3(0, 0, 1);
 const CHEST = 1.2;
 const POOL = 48;
+/** Web shots aren't drawn until they're this far from the hand (m). */
+const SHOT_HIDE_NEAR = 2.5;
 const _v = new THREE.Vector3();
 const _aim = new THREE.Vector3();
 const _dir = new THREE.Vector3();
@@ -85,7 +87,7 @@ export class CombatClient {
     /** Camera shake for hits on us. */
     private readonly shake: (amount: number) => void,
   ) {
-    const geo = new THREE.SphereGeometry(0.11, 8, 6).scale(1, 1, 7);
+    const geo = new THREE.SphereGeometry(0.1, 8, 6).scale(1, 1, 5);
     const mat = new THREE.MeshBasicMaterial({ color: 0xf8f8ff });
     for (let i = 0; i < POOL; i++) {
       const m = new THREE.Mesh(geo, mat);
@@ -354,7 +356,7 @@ export class CombatClient {
   private spawnProjectile(o: THREE.Vector3, d: THREE.Vector3, len: number, sid: number | null, c: number | null, by: string, age: number): void {
     const mesh = this.free.pop();
     if (!mesh) return; // pool exhausted: skip drawing (the server still simulates it)
-    mesh.visible = true;
+    mesh.visible = false; // shown once it's clear of the hand
     mesh.quaternion.setFromUnitVectors(FORWARD, d);
     this.projectiles.push({ mesh, o: o.clone(), d: d.clone(), t0: this.time - age, len, sid, c, by });
   }
@@ -376,6 +378,9 @@ export class CombatClient {
         continue;
       }
       p.mesh.position.copy(p.o).addScaledVector(p.d, dist);
+      // Hidden for the first couple of meters: right at the hand it would
+      // fill the first-person view.
+      p.mesh.visible = dist > SHOT_HIDE_NEAR;
     }
   }
 

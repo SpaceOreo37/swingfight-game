@@ -1,168 +1,146 @@
 # The Swingfight Game
 
-Browser-based open-city web-swinging game, built in small steps. Mechanics first, graphics later, then multiplayer fights with friends.
+**Swing through a city. Fight your friends. Right in your browser.**
 
-## Run it
+A fast, physics-driven web-swinging game with online multiplayer: swing between skyscrapers, run up walls, launch off rooftops, and battle your friends with web shots, yanks and zip strikes. No download and no account needed.
+
+### ▶ [Play now: swingfight-game.onrender.com](https://swingfight-game.onrender.com)
+
+> Hosted on a free server that naps when nobody's playing. If the page takes a minute to load the first time, it's waking up; after that it's instant for everyone.
+
+![Swinging down an avenue](docs/screenshots/swing.jpg)
+
+---
+
+## Features
+
+- **Physics-based web swinging:** real momentum, a stretchy web, and release timing that matters. Chain swings to build speed, and let go at the right moment for a boost.
+- **A whole city to explore:** about 1.2 km² of island downtown with skyscraper districts, a central park, rooftops, water towers and street lights, all generated in code so it loads in seconds.
+- **Parkour:** wall running and climbing, zip-to-point, charged launches, and bounces off walls.
+- **Online multiplayer:** make a room, send your friends a link, and play together from anywhere.
+- **Combat:** web shots, yanks, zip strikes, swing kicks, and a fatal yank-then-slam combo.
+- **Game modes:** free-roam Brawl, solo Training against dummies, and Tag.
+- **First or third person,** with camera shake, speed lines and G-force camera lag.
+- **Rebindable controls,** saved in your browser.
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/home.jpg" alt="Home screen" /></td>
+    <td><img src="docs/screenshots/first-person.jpg" alt="First-person swinging" /></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/combat.jpg" alt="Combat in training mode" /></td>
+    <td><img src="docs/screenshots/city.jpg" alt="The city from above" /></td>
+  </tr>
+</table>
+
+## How to play
+
+1. Open **[the game](https://swingfight-game.onrender.com)**, type a name and pick a mode.
+2. **Playing with friends:** type a room name (or leave it blank) and press **Copy invite**. Send the link, and everyone who opens it joins your room.
+3. Press **Enter**, then click to capture the mouse. **Esc** pauses and brings the menu back.
+
+A mouse and keyboard on a desktop or laptop is recommended.
+
+### Controls
+
+These are the defaults. Change any of them under **Controls & key bindings** on the home screen.
+
+| Key | Action |
+|---|---|
+| **W A S D** | Move |
+| **Shift** | Sprint |
+| **Space** | Jump · wall-jump |
+| **Right click** (hold, in the air) | Web swing to the ◆ marker. Let go to fly |
+| **Left click** (hold) | Web shots at the crosshair |
+| **E** | Yank the player under the crosshair to the floor |
+| **C** + **Right click** | On the ground: charge a launch (hold 3–4 s for max). In the air: zip to the marker |
+| **C** + **Left click** | Zip strike the player under the crosshair |
+| **Tab** | Thwip: a quick horizontal boost (10 m+ up, every 2.5 s) |
+| **V** | First / third person |
+| **R** | Respawn |
+
+### Tips
+
+- **Swing timing:** let go on the upswing for a speed boost (the HUD shows *PERFECT / good / ok*). Hold past the top and you swing back like a pendulum.
+- **Walls:** swing or run into a building and you stick to it. Push toward it to climb, and you vault onto the roof at the top.
+- **Zips:** press **Space** during a zip to a roof edge to launch off it, or during a zip to a wall to bounce off it.
+- **The combo:** a **yank** knocks someone down for 3 seconds, and a **zip strike** on a downed player is a one-hit **slam**.
+- **Swing kicks:** just fly into someone fast. The faster you're going, the harder it hits.
+
+### Game modes
+
+| Mode | What happens |
+|---|---|
+| **Brawl** | The whole city, fighting on. 100 HP each, respawn 3 seconds after a knockout. |
+| **Training** | Practice alone against dummies that stand, walk and fly. |
+| **Tag** | No damage. If you're "it", hit someone to pass it on. Least time as "it" wins. |
+
+Whoever opens a room picks its mode.
+
+---
+
+## Run it yourself
+
+You need [Node.js](https://nodejs.org) 22+.
 
 ```bash
+git clone https://github.com/SpaceOreo37/swingfight-game.git
+cd swingfight-game
 npm install
-npm run dev        # game server (:3001) + game (:5173), both auto-reload
-npm test           # server + networking tests
+npm run dev     # game on http://localhost:5173 (+ game server on :3001), auto-reloads
+npm test        # server + networking tests
 ```
 
-Open http://localhost:5173. Production-style (one port serves everything): `npm start` → http://localhost:3001.
+Production-style, with one port for everything: `npm start`, then open http://localhost:3001.
 
-Enter a name, click **Play**.
+### Hosting your own
 
-| Input | Action |
-|---|---|
-| WASD | move (relative to camera) |
-| Shift | sprint |
-| Space | jump · jump off a swing for a boost |
-| Right-click (hold) | web swing (in the air) at the marker. Keep holding to chain swings |
-| Tab | web thwip: horizontal yank toward where you're looking (keeps your horizontal speed + a little, never lifts you). Only 10 m+ above the street, once every 2.5 s |
-| C + right-click (ground) | charge a launch: web planted, meter fills. Release right-click or C to launch toward the web point (aimed with gravity so the arc reaches it; weaker charges fall short). Power: 0–1s weak, 1–3s ramps up, **3–4s max**, over 4s drops to half |
-| C + right-click (air / wall) | zip to the marker point: lands you on top of a roof edge, or sticks you to the wall at a corner partway up |
-| Space during a zip to a roof edge | point launch: instead of landing, get flung up and onward off the edge |
-| Space during a zip to a wall | wall bounce: reflect off the wall like a ball (angle in = angle out) instead of sticking |
-| Walls | run, jump or swing into one to stick. Push toward it = climb, sideways = run along, away = drop, Space = wall-jump. You vault onto the roof at the top |
-| V | switch first / third person (also in the menu) |
-| Left-click (hold) | web shot toward the crosshair (spammable) |
-| E | yank the player under the crosshair: rips them off their feet and slams them to the floor in front of you (downed for 3 s: slow, no webs) |
-| C + left-click | zip strike at the player under the crosshair. On a downed (yanked) player it's a fatal **slam** |
-| Fly/swing into someone fast | swing kick (automatic, damage grows with speed) |
-| R | respawn |
-| Esc | menu (name, mouse sensitivity) |
+Any host that runs a long-lived Node server with WebSockets works (Render, Railway, Fly.io, a VPS…).
 
-All bindings live in [client/src/game/Controls.ts](client/src/game/Controls.ts). Swinging is on right-click so left-click stays free for attacks. That way you can fight mid-swing without the two fighting over a button.
+- **Build command:** `npm ci --include=dev && npm run build`
+- **Start command:** `npm run start -w server`
+- **Health check:** `/health`
 
-## Layout
+The server listens on `$PORT` and serves both the game and the multiplayer socket. Serverless platforms like Vercel won't work, because they can't keep WebSockets open.
+
+## How it's built
+
+- **TypeScript everywhere.** [Three.js](https://threejs.org) for rendering, [Vite](https://vitejs.dev) for the client, and a small Node + [ws](https://github.com/websockets/ws) server.
+- **Lightweight by design.** The city, textures and props are all generated in code from a seed, so the whole game is under 200 KB compressed. Buildings are merged per area and repeated props are instanced, so the city draws in a few dozen calls.
+- **Physics.** A fixed 60 Hz simulation with box collision against the city, a spring-based web, real air drag, and a few game-feel assists.
+- **Multiplayer.**
+  - **Movement:** each player simulates their own movement and sends it 20 times a second. The server sanity-checks it and broadcasts each room at 20 Hz.
+  - **Smoothing:** other players are drawn slightly in the past and smoothly interpolated, so they don't jitter.
+  - **Fair hits:** combat is decided on the server, which rewinds targets to what the attacker saw, so hits are fair even with lag.
+  - **Web shots:** each shot's lifetime is fixed the moment it's fired, so nothing piles up on the server.
+- **Protocol.** Every network message is defined and validated in one shared file (`shared/src/protocol.ts`), and is versioned so outdated clients get a clear "refresh" message.
 
 ```
-shared/   Code both the browser and a future server use
-  city.ts        Seeded city generator (same seed = same map for everyone)
-  collision.ts   Box collision + raycasts over a spatial grid
-  constants.ts   All movement + swing tuning numbers (PHYS, SWING)
-  protocol.ts    Every network message + validation (bump PROTOCOL_VERSION on changes)
-server/   Node WebSocket game server (rooms, validation, 20 Hz broadcast) + tests
-client/   The browser game (Vite + TypeScript + Three.js)
-  game/Game.ts              Main loop: fixed 60Hz physics, render, HUD, dynamic resolution
-  game/PlayerController.ts  Movement states: ground / air / swing
-  game/Controls.ts          Key bindings
-  game/CameraRig.ts         Third-person camera that avoids walls
-  game/CityRenderer.ts      City meshes, merged per 128m chunk
-  game/Avatar.ts, WebLine.ts  Placeholder character + web strand
-  ui/Hud.ts, ui/Minimap.ts  Start screen, stats, rotating minimap
-  net/Network.ts            Connection, reconnect, clock sync
-  net/SnapshotBuffer.ts     Smooth interpolation of other players (tested)
-  net/RemotePlayers.ts      Drawing other players, their webs and name tags
+shared/   Code used by both sides: city generator, collision, tuning, network protocol
+server/   WebSocket game server: rooms, combat rules, training dummies, tests
+client/   The browser game
+  game/     Physics, cameras, rendering, avatar, input & key bindings
+  combat/   Crosshair, web shots, hits, combat HUD
+  net/      Connection, clock sync, smooth remote players
+  ui/       Home screen, HUD, minimap, speed lines
 ```
 
-## How swinging works
+Tuning lives in `shared/src/constants.ts` (movement, swinging, camera) and `shared/src/protocol.ts` (combat).
 
-Physics first, plus a few deliberate game-style assists:
+## Roadmap
 
-- **Forces:** gravity (2x Earth, like action games use, and a little extra while rising through the air), real air drag for a streamlined person, and a stretchy spider-silk web (Hooke's law with damping) that pulls but never pushes, and can go slack.
-- **Aim marker:** a big diamond on the building edge your web will hit, anywhere along any roof edge or corner (the nearest edge to where you aim). White = ready to swing (it aims a bit higher than you look, since swings need high points); gold = C held (zip/launch aims exactly where you look); faded = on the ground.
-- **One web per click, air only.** Click while airborne, or hold right-click and jump: it fires as you leave the ground.
-- **The web stays on until you let go of right-click.** Hold past the top and you swing back like a real pendulum.
-- **Release = momentum.** You leave with exactly the speed and direction you had at that moment: at the bottom you fly forward, on the upswing you fly up (and gravity pulls harder while rising).
-- **Release timing boost (game-style, like Spider-Man 2):** letting go on the upswing near 35° past the bottom adds up to +5 m/s. The HUD shows `release: PERFECT / good / ok`.
-- **Faster every swing:** near the bottom of each arc the hero pulls the web in, like pumping a playground swing (a shorter web spins you faster). Each swing in a chain pulls a little harder.
-- **Space mid-swing:** a hard yank on the web, then let go.
-- **Assists:** a web on a building beside you pulls you sideways at only 35% strength (so you go down the street, not into the wall), and the web shortens automatically so your arc clears the street.
+- [x] City, swinging, wall running, zips and launches
+- [x] Online multiplayer with rooms
+- [x] Combat: Brawl, Training and Tag modes
+- [x] Home screen and rebindable controls
+- [ ] Race mode with checkpoint courses
+- [ ] Sound effects
+- [ ] Cutting other players' web lines
+- [ ] Real character models and animations
 
-All numbers are in `PHYS`, `AIR` and `SWING` in [shared/src/constants.ts](shared/src/constants.ts).
+## Feedback
 
-## Staying lightweight as the city gets dense
+Found a bug or have an idea? [Open an issue](https://github.com/SpaceOreo37/swingfight-game/issues).
 
-What's in place now:
-- **No downloaded assets.** The city and window textures are generated in code, so the whole game is about 136 KB gzipped. Three.js is a separate file so it stays cached between updates.
-- **Chunked city.** Buildings are merged into one mesh per 128m chunk: few draw calls, and chunks off-screen or outside the shadow area are skipped.
-- **No hidden faces.** Building bottoms are never drawn.
-- **Dynamic resolution.** If FPS drops below ~50, the game renders fewer pixels until it recovers. Pixel ratio is capped at 1.5.
-- **Cheap HUD.** The minimap is drawn once and only rotated/cropped each frame. Stats update 4× a second.
-
-Plan for when the city gets dense (props, cars, people, detailed buildings):
-- **Instancing** (InstancedMesh / BatchedMesh) for anything repeated: lamps, cars, AC units, windows as geometry.
-- **LOD per chunk:** detailed meshes up close, simple boxes far away, and fog to hide the cutoff.
-- **Stream chunks:** build or load nearby chunks only, generating them in a Web Worker so the main thread never stutters.
-- **Compressed assets** when real models arrive: glTF with meshopt/Draco geometry and KTX2 textures (smaller downloads and less GPU memory).
-- **Shadow budget:** a tight shadow area around the player, with baked lighting for the far city.
-
-## Multiplayer
-
-**Playing with friends**
-- Everyone in the same **room** sees each other. Type a room name in the menu, or send a link like `http://<your-ip>:5173/?room=crew`.
-- **Same Wi-Fi:** friends open `http://<your computer's IP>:5173` (shown as "Network" when `npm run dev` starts).
-- **Over the internet:** run a tunnel to port 5173 (e.g. `cloudflared tunnel --url http://localhost:5173`) and share its link, or deploy the server (`npm start` serves the game and the socket on one port).
-
-**How it works**
-- **Client-authoritative movement, server-checked.** Each client simulates itself and sends its state 20×/s. The server rejects malformed or impossible states (outside the city, faster than 120 m/s) and broadcasts each room at a fixed 20 Hz.
-- **Smooth remote players.** Clients draw others ~110 ms in the past, blending snapshots with a curve that matches their velocity (`client/src/net/SnapshotBuffer.ts`). Teleports snap, late packets get a brief prediction, and a clock sync (ping/pong, lowest-RTT samples) keeps timing aligned.
-- **Events** (`NetEvent`) carry one-shot effects like thwips. Attacks will use the same channel.
-- **Combat-ready:** the server keeps 1 s of position history per player for lag-compensated hit checks later.
-- **Resilience:**
-  - auto-reconnect with backoff
-  - "refresh" message if versions differ
-  - per-player rate limiting (flooders get kicked)
-  - idle timeout
-  - rooms are isolated, and a crash in one message handler can't take the server down
-- **Name tags** float above other players (never your own), keep a readable size at any distance, and show through walls so friends are easy to find (`THROUGH_WALLS` in `Nametag.ts`).
-
-**Rules for changing it (so nothing breaks)**
-1. All messages live in `shared/src/protocol.ts`. **Change a message shape → bump `PROTOCOL_VERSION`.**
-2. Every incoming message goes through `parseClientMessage` / `parseServerMessage`. Add validation for new fields there.
-3. Add a test in `server/test/server.test.ts` for any new message, and run `npm test`.
-
-## Combat
-
-**Modes** (picked by whoever opens the room):
-- **Free-roam brawl:** the city with fighting on.
-- **Training:** five server-run dummies near spawn (standing, walking, flying). They take hits, get yanked and respawn exactly like players, so you can practice alone.
-- **Tag:** no damage. A hit from whoever is "it" passes it on (no instant tag-backs). The lowest time spent as "it" wins.
-
-**Rules** (numbers in `COMBAT` in [shared/src/protocol.ts](shared/src/protocol.ts)):
-- 100 HP. A knockout means a 3 s respawn, then 2 s of spawn protection.
-- **Web shot:** 5 damage plus a short slow.
-- **Swing kick:** 10 damage plus extra per m/s of speed, up to 45.
-- **Zip strike:** 30 damage.
-- **Yank:** 8 damage and downed for 3 s.
-- **Slam:** a zip strike on a downed player, 100 damage.
-
-**How hits work** (so it's fair and nothing piles up on the server):
-- **The server is the judge.** Web shots are simulated on the server. Each shot's lifetime is fixed when it's fired (it ends where it would hit a building, max 150 m), so shots can never accumulate.
-- **Lag compensation:** the server rewinds targets to where the attacker saw them (up to 400 ms back) using its position history.
-- **Close-range moves** (kick, strike, yank) are claims the server checks: range, line of sight, speed and cooldowns.
-- **Hit effects** (knockback, slow, downed) are applied by the victim's own client when the server says so.
-
-## Game feel
-
-- **Camera shake:** a rumble that grows with speed, plus kicks from web catches, launches, thwips, wall impacts, hard landings and zip arrivals (`jolt` in the controller → `CameraRig.addTrauma`).
-- **G-forces:** the camera lags behind sudden acceleration and catches up. The FOV widens with speed and kicks on boosts.
-- **Web tug:** a web snaps tight when it attaches.
-- **Wind:** speed lines and a vignette that scale with speed (2D overlay, half resolution).
-- **First person:** camera in the head, arms drawn on top of the world. The web arm reaches for the anchor while swinging, the other arm punches out on thwip, arm raised while charging, both reaching on a zip, hands climbing on walls.
-- **The body always faces where the mouse looks,** which also suits combat.
-
-All camera numbers are in `CAMERA_FX` in [shared/src/constants.ts](shared/src/constants.ts).
-
-## The city
-
-Generated from a seed in a few milliseconds, with no downloads:
-
-- About 1.2 km × 1.2 km on an island. Long blocks between wide avenues (north–south) and narrower cross streets, like a real downtown grid.
-- Two skyscraper districts (towers up to ~290m with setbacks and spires), brick and concrete low-rises around them, a large central park, and small parks.
-- Four facade styles (glass, office, brick, concrete) plus gravel roofs, all in one shared texture. A small shader tweak picks the right tile, so each 192m chunk of buildings is still one draw call.
-- Instanced detail: ~1,400 street lights, ~2,300 rooftop AC units, ~400 water towers, park trees. Lane lines and crosswalks are one merged mesh.
-
-## Roadmap (one step at a time)
-
-1. ✅ **Basics:** project setup, city map, walk/sprint/jump, camera
-2. ✅ **Web swinging, name, minimap, perf pass** ← test & tune this
-3. ✅ **Bigger, more realistic city + wall running/climbing** (zip to point, corner wraps: later)
-4. ✅ **Multiplayer foundation:** rooms, smooth remote players, name tags, minimap dots, tests
-5. ✅ **Combat basics:** web shots, yank, zip strike / slam, swing kick, health, KOs, brawl / training / tag modes
-6. **Race mode**, cutting web lines with shots, more moves
-7. **Feel polish:** animations, camera effects, gamepad, sound
-8. **Graphics upgrade:** real models, lighting, post-processing
+Made by **SpaceOreo37**.

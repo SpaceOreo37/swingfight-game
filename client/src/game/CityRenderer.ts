@@ -2,6 +2,41 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CITY, FACADE, type Box, type Building, type CityLayout, type Prop } from '@game/shared';
 
+/** Materials that change between day and night. */
+export interface CityNightMaterials {
+  facade: THREE.MeshStandardMaterial;
+  lamps: THREE.MeshLambertMaterial;
+  /** Warm light pools on the street under each lamp. */
+  lampPools: THREE.MeshBasicMaterial;
+}
+
+const lampMaterial = new THREE.MeshLambertMaterial({ color: 0x6a6f76, emissive: new THREE.Color(0xffd28a), emissiveIntensity: 0 });
+const lampPoolMaterial = new THREE.MeshBasicMaterial({
+  map: poolTexture(),
+  color: 0xffc070,
+  transparent: true,
+  opacity: 0,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending,
+  polygonOffset: true,
+  polygonOffsetFactor: -4,
+  fog: false,
+});
+
+/** Soft round gradient for the light pools. */
+function poolTexture(): THREE.Texture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d')!;
+  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,0.9)');
+  g.addColorStop(0.5, 'rgba(255,255,255,0.35)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+}
+
 /** World size (meters) covered by one copy of a facade texture: 8 floors of 4m. */
 const TEX_METERS = 32;
 /** Buildings are merged per chunk so the camera only draws chunks it can see. */
@@ -14,7 +49,7 @@ const TILE_PX = 256;
  * Turns a CityLayout into meshes. Everything is generated in code (no
  * downloads) and merged so the whole city is a few dozen draw calls.
  */
-export function buildCity(city: CityLayout): THREE.Group {
+export function buildCity(city: CityLayout): { group: THREE.Group; night: CityNightMaterials } {
   const group = new THREE.Group();
 
   // Water all around, and the street-level ground of the island.
@@ -76,7 +111,7 @@ export function buildCity(city: CityLayout): THREE.Group {
     o.updateMatrix();
     o.matrixAutoUpdate = false;
   });
-  return group;
+  return { group, night: { facade: buildingMat, lamps: lampMaterial, lampPools: lampPoolMaterial } };
 }
 
 function plainBox(b: Box): THREE.BufferGeometry {
@@ -146,24 +181,45 @@ function buildingGeometry(b: Building): THREE.BufferGeometry {
  * texture and ONE draw call per chunk.
  */
 function facadeMaterial(): THREE.MeshStandardMaterial {
-  const mat = new THREE.MeshStandardMaterial({ map: facadeAtlas(), vertexColors: true, roughness: 0.75, metalness: 0.05 });
+  const atlas = facadeAtlas();
+  const mat = new THREE.MeshStandardMaterial({
+    map: atlas.map,
+    vertexColors: true,
+    roughness: 0.75,
+    metalness: 0.05,
+    // Lit windows glow at night (DayNight drives emissiveIntensity).
+    emissive: new THREE.Color(0xffffff),
+    emissiveMap: atlas.glow,
+    emissiveIntensity: 0,
+  });
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nattribute float facade;\nvarying float vFacade;')
       .replace('#include <uv_vertex>', '#include <uv_vertex>\nvFacade = facade;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vFacade;')
+      .replace(
+        '#include <common>',
+        `#include <common>
+        varying float vFacade;
+        const float ATLAS_TILES = ${ATLAS_TILES.toFixed(1)};
+        const float ATLAS_PAD = 2.0 / ${TILE_PX.toFixed(1)};
+        // Wrap inside the chosen tile of the atlas.
+        #define ATLAS_UV(uv) vec2((uv).x, (fract((uv).y) * (1.0 - 2.0 * ATLAS_PAD) + ATLAS_PAD + floor(vFacade + 0.5)) / ATLAS_TILES)`,
+      )
       .replace(
         '#include <map_fragment>',
         `#ifdef USE_MAP
-          // Wrap inside the chosen tile; sample with the unwrapped UV's gradients
-          // so mipmapping doesn't show seams where the tile repeats.
-          const float TILES = ${ATLAS_TILES.toFixed(1)};
-          const float PAD = 2.0 / ${TILE_PX.toFixed(1)};
-          vec2 tileUv = vec2(vMapUv.x, (fract(vMapUv.y) * (1.0 - 2.0 * PAD) + PAD + floor(vFacade + 0.5)) / TILES);
-          vec2 gx = dFdx(vMapUv) * vec2(1.0, 1.0 / TILES);
-          vec2 gy = dFdy(vMapUv) * vec2(1.0, 1.0 / TILES);
-          diffuseColor *= textureGrad(map, tileUv, gx, gy);
+          // Sample with the unwrapped UV's gradients so mipmapping doesn't show
+          // seams where the tile repeats.
+          vec2 atlasGx = dFdx(vMapUv) * vec2(1.0, 1.0 / ATLAS_TILES);
+          vec2 atlasGy = dFdy(vMapUv) * vec2(1.0, 1.0 / ATLAS_TILES);
+          diffuseColor *= textureGrad(map, ATLAS_UV(vMapUv), atlasGx, atlasGy);
+        #endif`,
+      )
+      .replace(
+        '#include <emissivemap_fragment>',
+        `#ifdef USE_EMISSIVEMAP
+          totalEmissiveRadiance *= textureGrad(emissiveMap, ATLAS_UV(vMapUv), atlasGx, atlasGy).rgb;
         #endif`,
       );
   };
@@ -172,12 +228,23 @@ function facadeMaterial(): THREE.MeshStandardMaterial {
 }
 
 /** One canvas, 5 tiles stacked vertically: glass, office, brick, concrete, roof gravel. */
-function facadeAtlas(): THREE.Texture {
+function facadeAtlas(): { map: THREE.Texture; glow: THREE.Texture } {
   const T = TILE_PX;
   const canvas = document.createElement('canvas');
   canvas.width = T;
   canvas.height = T * ATLAS_TILES;
   const ctx = canvas.getContext('2d')!;
+  // Glow mask with the same layout: only the lit windows, which light up at night.
+  const glowCanvas = document.createElement('canvas');
+  glowCanvas.width = T;
+  glowCanvas.height = T * ATLAS_TILES;
+  const gctx = glowCanvas.getContext('2d')!;
+  gctx.fillStyle = '#000';
+  gctx.fillRect(0, 0, T, T * ATLAS_TILES);
+  const glow = (x: number, y: number, w: number, h: number) => {
+    gctx.fillStyle = '#ffd9a0';
+    gctx.fillRect(x, y, w, h);
+  };
   // Seeded noise so every load looks the same.
   let s = 1234567;
   const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
@@ -200,6 +267,7 @@ function facadeAtlas(): THREE.Texture {
         const lit = rnd() < 0.12;
         ctx.fillStyle = lit ? 'rgba(255,240,190,0.55)' : `rgba(20,35,55,${0.15 + rnd() * 0.25})`;
         ctx.fillRect(c * 32 + 1, y0 + r * fh + 1, 30, fh - 2);
+        if (lit) glow(c * 32 + 1, y0 + r * fh + 1, 30, fh - 2);
       }
     }
     ctx.fillStyle = '#c9d3dc'; // mullions
@@ -221,6 +289,7 @@ function facadeAtlas(): THREE.Texture {
         if (rnd() < 0.15) {
           ctx.fillStyle = 'rgba(255,236,180,0.7)';
           ctx.fillRect(c * 16 + 1, wy + 1, 14, fh - 16);
+          glow(c * 16 + 1, wy + 1, 14, fh - 16);
         }
       }
       ctx.fillStyle = '#b5b1a9';
@@ -246,8 +315,10 @@ function facadeAtlas(): THREE.Texture {
         const wy = y0 + r * fh + 6;
         ctx.fillStyle = '#d9cfc0'; // sill/frame
         ctx.fillRect(wx - 2, wy - 2, 18, fh - 8);
-        ctx.fillStyle = rnd() < 0.18 ? '#f2dc9a' : '#2c3440';
+        const lit = rnd() < 0.18;
+        ctx.fillStyle = lit ? '#f2dc9a' : '#2c3440';
         ctx.fillRect(wx, wy, 14, fh - 12);
+        if (lit) glow(wx, wy, 14, fh - 12);
       }
     }
   }
@@ -266,8 +337,10 @@ function facadeAtlas(): THREE.Texture {
       for (let c = 0; c < 6; c++) {
         const wx = c * 42 + 8;
         const wy = y0 + r * fh + 7;
-        ctx.fillStyle = rnd() < 0.14 ? '#f0dfa8' : '#34404c';
+        const lit = rnd() < 0.14;
+        ctx.fillStyle = lit ? '#f0dfa8' : '#34404c';
         ctx.fillRect(wx, wy, 28, fh - 14);
+        if (lit) glow(wx, wy, 28, fh - 14);
       }
       ctx.fillStyle = 'rgba(0,0,0,0.15)';
       ctx.fillRect(0, y0 + r * fh, T, 2);
@@ -286,11 +359,14 @@ function facadeAtlas(): THREE.Texture {
     }
   }
 
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 8;
-  return tex;
+  const make = (c: HTMLCanvasElement) => {
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 8;
+    return tex;
+  };
+  return { map: make(canvas), glow: make(glowCanvas) };
 }
 
 // ------------------------------------------------------------------ streets
@@ -392,7 +468,11 @@ function buildProps(props: Prop[]): THREE.Group {
   const pole = new THREE.CylinderGeometry(0.09, 0.12, 7, 6).translate(0, 3.5, 0);
   const arm = new THREE.BoxGeometry(0.12, 0.12, 2).translate(0, 7, 1);
   const head = new THREE.BoxGeometry(0.45, 0.2, 0.7).translate(0, 6.9, 1.9);
-  instanced(mergeGeometries([pole, arm, head]), new THREE.MeshLambertMaterial({ color: 0x3b4148 }), lights, false);
+  instanced(mergeGeometries([pole, arm]), new THREE.MeshLambertMaterial({ color: 0x3b4148 }), lights, false);
+  // Lamp heads glow at night (DayNight drives emissiveIntensity), with a pool of light below.
+  instanced(head, lampMaterial, lights, false);
+  const pool = new THREE.PlaneGeometry(13, 13).rotateX(-Math.PI / 2).translate(0, 0.06, 2.4);
+  instanced(pool, lampPoolMaterial, lights, false);
 
   const ac = byKind('ac');
   instanced(new THREE.BoxGeometry(2.4, 1.4, 1.8).translate(0, 0.7, 0), new THREE.MeshLambertMaterial({ color: 0xb9bcbf }), ac);

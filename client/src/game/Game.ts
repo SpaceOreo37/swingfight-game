@@ -14,7 +14,9 @@ import { RemotePlayers } from '../net/RemotePlayers';
 import { Nametag } from './Nametag';
 import { CombatClient } from '../combat/CombatClient';
 import { CombatHud } from '../combat/CombatHud';
+import { RaceClient } from '../race/RaceClient';
 import { buildCity } from './CityRenderer';
+import { DayNight } from './DayNight';
 import { Hud, type Quality, type View } from '../ui/Hud';
 import { Minimap } from '../ui/Minimap';
 
@@ -62,8 +64,10 @@ export class Game {
   // Multiplayer.
   private readonly remotes: RemotePlayers;
   private readonly combat: CombatClient;
+  private readonly combatHud = new CombatHud();
+  private readonly dayNight: DayNight;
+  private readonly race: RaceClient;
   private readonly shotHand = new THREE.Vector3();
-  private readonly camRight = new THREE.Vector3();
   private readonly net: Network;
   private sendTimer = 0;
   private lastThwipCount = 0;
@@ -95,7 +99,8 @@ export class Game {
 
     this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1600);
 
-    this.scene.add(new THREE.HemisphereLight(0xdfefff, 0x8a8f96, 1.6));
+    const hemi = new THREE.HemisphereLight(0xdfefff, 0x8a8f96, 1.6);
+    this.scene.add(hemi);
     this.sun = new THREE.DirectionalLight(0xfff2dd, 2.4);
     this.sun.castShadow = true;
     const sc = this.sun.shadow.camera;
@@ -107,7 +112,11 @@ export class Game {
     this.scene.add(this.sun, this.sun.target);
 
     this.city = generateCity(WORLD_SEED);
-    this.scene.add(buildCity(this.city));
+    const built = buildCity(this.city);
+    this.scene.add(built.group);
+    this.dayNight = new DayNight(this.scene, this.sun, hemi, built.night);
+    this.dayNight.setting = this.hud.timeOfDay;
+    this.hud.onTimeOfDayChange((t) => (this.dayNight.setting = t));
     const collider = new CityCollider([...this.city.buildings, ...this.city.sidewalks]);
 
     this.player = new PlayerController(collider, this.city.halfX + 20, this.city.halfZ + 20);
@@ -120,6 +129,7 @@ export class Game {
       welcome: (me, players, room, mode, hp) => {
         this.remotes.reset(players);
         this.combat.reset(mode, hp);
+        this.race.setActive(mode === 'race');
         this.avatar.setColor(me.color);
         this.arms.setColor(me.color);
         this.hud.setPlayerLabel(me.name, room);
@@ -129,7 +139,10 @@ export class Game {
       state: (id, t, s) => this.remotes.pushState(id, t, s),
       event: (id, _t, e) => this.remotes.event(id, e),
       status: (status, message) => this.onNetStatus(status, message),
-      game: (m) => this.combat.onMessage(m),
+      game: (m) => {
+        if (m.t === 'race' || m.t === 'raceCp' || m.t === 'raceBoard') this.race.onMessage(m);
+        else this.combat.onMessage(m);
+      },
     });
 
     this.rig = new CameraRig(this.camera, collider);
@@ -140,9 +153,10 @@ export class Game {
       this.net,
       this.remotes,
       this.player,
-      new CombatHud(),
+      this.combatHud,
       (amount) => this.rig.addTrauma(amount),
     );
+    this.race = new RaceClient(this.scene, this.city, this.net, this.remotes, this.player, (t) => this.combatHud.bigMessage(t));
     // First-person arms ride on the camera, so the camera must be in the scene.
     this.camera.add(this.arms.root);
     this.scene.add(this.camera);
@@ -235,6 +249,7 @@ export class Game {
   }
 
   private respawn(): void {
+    this.race?.onRespawn();
     const s = this.city.spawn;
     this.player.teleport(s.x, s.y + 1, s.z);
   }
@@ -280,6 +295,7 @@ export class Game {
     const { dx, dy } = input.takeMouseDelta();
     this.rig.rotate(dx, dy);
     if (input.consume('respawn') && !player.frozen) this.respawn();
+    if (input.consume('raceStart')) this.race.requestStart();
     if (input.consume('view')) {
       const next = this.rig.mode === 'first' ? 'third' : 'first';
       this.setView(next);
@@ -372,29 +388,28 @@ export class Game {
       this.arms.leftHandWorld(this.thwipFrom);
     } else {
       this.avatar.update(
-        this.renderPos,
-        player.yaw,
-        swinging ? this.ropeDir : null,
-        player.state === 'wall' ? player.wallNormal : null,
-        player.vel,
+        {
+          pos: this.renderPos,
+          yaw: player.yaw,
+          vel: player.vel,
+          state: player.state,
+          ropeDir: swinging ? this.ropeDir : null,
+          wallNormal: player.state === 'wall' ? player.wallNormal : null,
+          punchAge,
+          downed,
+        },
         dt,
-        player.state === 'charge',
-        punchAge,
-        downed,
       );
-      if (swinging) this.handPos.copy(this.renderPos).addScaledVector(this.ropeDir, 1.9);
-      if (player.state === 'charge') this.handPos.set(this.renderPos.x + 0.1, this.renderPos.y + 1.85, this.renderPos.z); // raised hand while crouched
-      this.thwipFrom.set(this.renderPos.x, this.renderPos.y + 1.5, this.renderPos.z);
+      // Webs come out of the hero's actual hands.
+      this.avatar.rightHandWorld(this.handPos);
+      this.avatar.leftHandWorld(this.thwipFrom);
     }
     // Zip-to-point fires two webs, one from each hand, landing side by side.
     const zipping = player.state === 'zip';
     if (zipping) {
       this.side.crossVectors(this.ropeDir, this.camera.up).normalize();
       if (firstPerson) this.arms.leftHandWorld(this.zipFrom);
-      else {
-        this.zipFrom.copy(this.handPos).addScaledVector(this.side, -0.6);
-        this.handPos.addScaledVector(this.side, 0.15);
-      }
+      else this.avatar.leftHandWorld(this.zipFrom);
       this.zipTo.copy(player.anchor).addScaledVector(this.side, -0.6);
     }
     this.zipWeb.update(this.zipFrom, zipping ? this.zipTo : null);
@@ -404,11 +419,9 @@ export class Game {
 
     // Combat: web shots leave from the left (punching) hand.
     if (firstPerson) this.arms.leftHandWorld(this.shotHand);
-    else {
-      this.camRight.setFromMatrixColumn(this.camera.matrixWorld, 0);
-      this.shotHand.set(this.renderPos.x, this.renderPos.y + 1.45, this.renderPos.z).addScaledVector(this.camRight, -0.4);
-    }
+    else this.avatar.leftHandWorld(this.shotHand);
     this.combat.update(dt, combatInput, this.camera, this.shotHand);
+    this.race.update(dt);
 
     // Marker is "ready" when a click would do something: in the air, or on the ground with C held.
     const anchorHeld = input.down('anchor');
@@ -422,14 +435,16 @@ export class Game {
     this.hud.setCharge(player.state === 'charge' ? player.chargeTime : null);
     this.speedLines.update(speed, dt);
 
-    // Shadows follow the player.
-    this.sun.position.set(this.renderPos.x + 240, this.renderPos.y + 400, this.renderPos.z + 160);
-    this.sun.target.position.copy(this.renderPos);
+    // Sun / moon / sky (shared clock when online, so everyone sees the same sky).
+    this.dayNight.update(this.net.status === 'online' ? this.net.serverNow() : performance.now(), this.camera, this.renderPos);
 
     this.sendNetwork(dt);
     this.remotes.update(this.net.serverNow(), dt, this.camera);
 
-    this.minimap.draw(this.renderPos.x, this.renderPos.z, this.rig.yaw, player.yaw, this.remotes.markers());
+    const markers = this.remotes.markers();
+    const ring = this.race.marker();
+    if (ring) markers.push(ring);
+    this.minimap.draw(this.renderPos.x, this.renderPos.z, this.rig.yaw, player.yaw, markers);
     this.renderer.render(this.scene, this.camera);
 
     // Stats: average FPS and the worst frame recently (spikes = hitches).

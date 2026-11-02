@@ -119,7 +119,7 @@ export class CombatClient {
     this.yanks.length = 0;
     this.tagIt = null;
     this.hud.setMode(mode);
-    this.hud.setHealth(this.myHp() / COMBAT.maxHp, mode !== 'tag');
+    this.hud.setHealth(this.myHp() / COMBAT.maxHp, mode !== 'tag' && mode !== 'race');
     this.hud.setTag(null, [], () => '');
     for (const [id, v] of this.hp) {
       const r = this.remotes.get(id);
@@ -143,7 +143,7 @@ export class CombatClient {
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
     this.yankCooldown = Math.max(0, this.yankCooldown - dt);
     const online = this.net.status === 'online';
-    const canAct = online && !this.player.frozen;
+    const canAct = online && !this.player.frozen && this.mode !== 'race';
 
     this.target = this.findTarget(camera);
     this.hud.setCrosshair(this.target !== null);

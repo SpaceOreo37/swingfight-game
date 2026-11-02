@@ -10,7 +10,7 @@
  *  - Keep validation strict: unknown/garbled messages are dropped, never guessed at.
  */
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 export const NET = {
   /** Client sends its own state this many times per second. */
@@ -41,7 +41,7 @@ export const NET = {
 } as const;
 
 /** Game modes. A room's mode is set by whoever creates it. */
-export const GAME_MODES = ['brawl', 'training', 'tag'] as const;
+export const GAME_MODES = ['brawl', 'training', 'tag', 'race'] as const;
 export type GameMode = (typeof GAME_MODES)[number];
 
 /** Combat tuning. Shared so client feedback and server rules always agree. */
@@ -92,6 +92,7 @@ export const COMBAT = {
 } as const;
 
 export type HitKind = 'shot' | 'kick' | 'strike' | 'slam' | 'yank';
+export type RacePhase = 'idle' | 'countdown' | 'running';
 export const HIT_KINDS: readonly HitKind[] = ['shot', 'kick', 'strike', 'slam', 'yank'];
 
 /** Effects a hit has on the target's movement (applied by the target's own client). */
@@ -156,7 +157,9 @@ export type ClientMessage =
    */
   | { t: 'fire'; o: Vec3; d: Vec3; vt: number; c: number }
   /** Close-range action claim (the server checks it against where the target really was at `vt`). */
-  | { t: 'act'; k: 'kick' | 'strike' | 'yank'; target: string; vt: number };
+  | { t: 'act'; k: 'kick' | 'strike' | 'yank'; target: string; vt: number }
+  /** Race mode: start a countdown race for everyone in the room. */
+  | { t: 'raceStart' };
 
 export type ServerMessage =
   /** You joined. `you` has your final name (made unique) and color; `players` is everyone else. */
@@ -193,7 +196,20 @@ export type ServerMessage =
   /** Back in the game with full health (the player's own client moves itself to a spawn point). */
   | { t: 'respawn'; id: string; hp: number }
   /** Tag mode: who's "it" and everyone's seconds spent as "it" (lowest wins). */
-  | { t: 'tag'; it: string | null; scores: [string, number][] };
+  | { t: 'tag'; it: string | null; scores: [string, number][] }
+  /**
+   * Race mode phase. In 'countdown' the racers line up and wait until
+   * `startAt` (server time); 'running' ends at `endsAt` at the latest.
+   */
+  | { t: 'race'; phase: RacePhase; startAt: number; endsAt: number; racers: string[] }
+  /**
+   * Someone passed checkpoint `cp` (0 = start ring) of `total`, `time` ms into
+   * their run. cp === total - 1 means they finished. `group` = the room race
+   * (vs. a solo time trial).
+   */
+  | { t: 'raceCp'; id: string; cp: number; total: number; time: number; group: boolean }
+  /** Best time per player in this room, and the last group race's finishing order. */
+  | { t: 'raceBoard'; best: [string, number][]; last: [string, number][] };
 
 // ---------------------------------------------------------------- encoding
 
@@ -267,6 +283,8 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return isNum(m.c) ? { t: 'ping', c: m.c } : null;
     case 'fire':
       return isVec3(m.o) && isUnitVec3(m.d) && isNum(m.vt) && isNum(m.c) ? { t: 'fire', o: m.o, d: m.d, vt: m.vt, c: m.c } : null;
+    case 'raceStart':
+      return { t: 'raceStart' };
     case 'act':
       return (m.k === 'kick' || m.k === 'strike' || m.k === 'yank') && isStr(m.target, 64) && isNum(m.vt)
         ? { t: 'act', k: m.k, target: m.target, vt: m.vt }
@@ -316,6 +334,22 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       return isStr(m.target, 64) && isStr(m.by, 64) && HIT_KINDS.includes(m.kind as HitKind) ? (m as ServerMessage) : null;
     case 'respawn':
       return isStr(m.id, 64) && isNum(m.hp) ? (m as ServerMessage) : null;
+    case 'race':
+      return (m.phase === 'idle' || m.phase === 'countdown' || m.phase === 'running') &&
+        isNum(m.startAt) &&
+        isNum(m.endsAt) &&
+        Array.isArray(m.racers) &&
+        m.racers.every((r) => isStr(r, 64))
+        ? (m as ServerMessage)
+        : null;
+    case 'raceCp':
+      return isStr(m.id, 64) && Number.isInteger(m.cp) && Number.isInteger(m.total) && isNum(m.time) && typeof m.group === 'boolean'
+        ? (m as ServerMessage)
+        : null;
+    case 'raceBoard': {
+      const pairs = (x: unknown) => Array.isArray(x) && x.every((e) => Array.isArray(e) && e.length === 2 && isStr(e[0], 64) && isNum(e[1]));
+      return pairs(m.best) && pairs(m.last) ? (m as ServerMessage) : null;
+    }
     case 'tag':
       return (m.it === null || isStr(m.it, 64)) &&
         Array.isArray(m.scores) &&

@@ -15,7 +15,7 @@ import {
 export type NetStatus = 'offline' | 'connecting' | 'online' | 'rejected';
 
 /** Combat / game messages from the server, passed straight through. */
-export type GameMessage = Extract<ServerMessage, { t: 'shot' | 'shotHit' | 'dmg' | 'ko' | 'respawn' | 'tag' }>;
+export type GameMessage = Extract<ServerMessage, { t: 'shot' | 'shotHit' | 'dmg' | 'ko' | 'respawn' | 'tag' | 'race' | 'raceCp' | 'raceBoard' }>;
 
 export interface NetHandlers {
   /** Joined (or re-joined after a reconnect). `players` = everyone else already in the room (incl. dummies). */
@@ -104,6 +104,10 @@ export class Network {
     this.send({ t: 'act', k, target, vt: this.viewTime() });
   }
 
+  sendRaceStart(): void {
+    this.send({ t: 'raceStart' });
+  }
+
   /** The server time we're currently drawing other players at (for lag-compensated hits). */
   viewTime(): number {
     return this.serverNow() - NET.interpDelayMs;
@@ -187,6 +191,9 @@ export class Network {
       case 'ko':
       case 'respawn':
       case 'tag':
+      case 'race':
+      case 'raceCp':
+      case 'raceBoard':
         this.handlers.game(msg);
         break;
       case 'reject':

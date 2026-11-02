@@ -1,7 +1,7 @@
 import type { GameMode, HitKind } from '@game/shared';
 import { kindLabel } from './CombatClient';
 
-const MODE_LABEL: Record<GameMode, string> = { brawl: 'Brawl', training: 'Training', tag: 'Tag' };
+const MODE_LABEL: Record<GameMode, string> = { brawl: 'Brawl', training: 'Training', tag: 'Tag', race: 'Race' };
 
 /**
  * Combat screen elements: crosshair + hit markers, health bar, kill feed,
@@ -30,6 +30,8 @@ export class CombatHud {
     this.modeEl.textContent = MODE_LABEL[mode];
     this.modeEl.classList.remove('hidden');
     this.tagEl.classList.toggle('hidden', mode !== 'tag');
+    // No crosshair in races (no shooting).
+    this.crosshair.classList.toggle('hidden', mode === 'race');
   }
 
   /** Red crosshair when a player is under it (yank / zip strike will work). */

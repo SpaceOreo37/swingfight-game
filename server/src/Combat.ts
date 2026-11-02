@@ -49,7 +49,12 @@ export class Combat {
   ) {}
 
   get damageEnabled(): boolean {
-    return this.mode !== 'tag';
+    return this.mode !== 'tag' && this.mode !== 'race';
+  }
+
+  /** Races are about movement: no web shots or attacks. */
+  private get combatAllowed(): boolean {
+    return this.mode !== 'race';
   }
 
   get shotCount(): number {
@@ -59,7 +64,7 @@ export class Combat {
   // ---------------------------------------------------------------- input
 
   fire(a: Actor & { shotsInFlight?: number }, m: Extract<ClientMessage, { t: 'fire' }>, now: number): void {
-    if (!isAlive(a, now) || !a.state) return;
+    if (!this.combatAllowed || !isAlive(a, now) || !a.state) return;
     if (now - (a.cooldowns.get('shot') ?? -Infinity) < COMBAT.shotCooldownMs * 0.8) return;
     if ((a.shotsInFlight ?? 0) >= COMBAT.maxShotsInFlight) return;
     // The shot has to start near the shooter's hands.
@@ -85,6 +90,7 @@ export class Combat {
   }
 
   act(a: Actor, m: Extract<ClientMessage, { t: 'act' }>, now: number): void {
+    if (!this.combatAllowed) return;
     const target = this.host.find(m.target);
     if (!target || target === a || !isAlive(a, now) || !isAlive(target, now) || !a.state) return;
     const at = clamp(m.vt, now - COMBAT.maxRewindMs, now);

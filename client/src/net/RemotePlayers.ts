@@ -75,21 +75,29 @@ export class RemotePlayer {
     const onWall = state === 'wall' && s.w;
     if (onWall) _wall.set(s.w![0], 0, s.w![1]);
 
-    this.avatar.update(_pos, s.y, webbed ? _rope : null, onWall ? _wall : null, _vel, dt, state === 'charge', this.thwipAge, this.downTime > 0 || this.ko);
+    this.avatar.update(
+      {
+        pos: _pos,
+        yaw: s.y,
+        vel: _vel,
+        state,
+        ropeDir: webbed ? _rope : null,
+        wallNormal: onWall ? _wall : null,
+        punchAge: this.thwipAge,
+        downed: this.downTime > 0 || this.ko,
+      },
+      dt,
+    );
 
-    // Webs, same rules as the local player in third person.
-    if (webbed) {
-      _hand.copy(_pos).addScaledVector(_rope, 1.9);
-      if (state === 'charge') _hand.set(_pos.x + 0.1, _pos.y + 1.85, _pos.z);
-    }
+    // Webs come out of their hands, same as the local player in third person.
+    this.avatar.rightHandWorld(_hand);
     if (webbed && state === 'zip') {
       _side.crossVectors(_rope, UP).normalize();
-      const from = _head.copy(_hand).addScaledVector(_side, -0.6);
-      this.zipWeb.update(from, _zipTo.copy(_anchor).addScaledVector(_side, -0.6));
-      _hand.addScaledVector(_side, 0.15);
+      this.avatar.leftHandWorld(_head);
+      this.zipWeb.update(_head, _zipTo.copy(_anchor).addScaledVector(_side, -0.6));
     } else this.zipWeb.update(_hand, null);
     this.web.update(_hand, webbed ? _anchor : null);
-    _hand.set(_pos.x, _pos.y + 1.5, _pos.z);
+    this.avatar.leftHandWorld(_hand);
     this.thwipWeb.update(_hand, this.thwipAge < 0.18 ? this.thwipTo : null);
 
     _head.set(_pos.x, _pos.y + 1.9, _pos.z);

@@ -18,7 +18,8 @@ export const ACTIONS = {
   thwip: { label: 'Thwip (10 m+ up)', keys: ['Tab'] },
   attack: { label: 'Web shot', keys: ['Mouse0'] },
   yank: { label: 'Yank', keys: ['KeyE'] },
-  respawn: { label: 'Respawn', keys: ['KeyR'] },
+  respawn: { label: 'Respawn', keys: ['BracketLeft'] },
+  raceStart: { label: 'Race mode: start a race for everyone', keys: ['KeyG'] },
   view: { label: 'First / third person', keys: ['KeyV'] },
 } as const satisfies Record<string, { label: string; keys: readonly string[] }>;
 
@@ -41,6 +42,8 @@ function load(): Bindings {
   const b = defaults();
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as Record<string, unknown>;
+    // Respawn used to default to R (too close to E): move anyone still on the old default.
+    if (Array.isArray(saved.respawn) && saved.respawn.length === 1 && saved.respawn[0] === 'KeyR') delete saved.respawn;
     for (const a of ACTION_LIST) {
       const v = saved[a];
       if (Array.isArray(v) && v.length && v.every((c) => typeof c === 'string' && c.length < 32 && !RESERVED.has(c))) b[a] = v as string[];

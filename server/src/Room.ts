@@ -1,8 +1,9 @@
-import { COMBAT, encode, NET, PLAYER_COLORS, type CityCollider, type CityLayout, type GameMode, type NetState, type ServerMessage, type Vec3 } from '@game/shared';
+import { COMBAT, encode, NET, PLAYER_COLORS, raceCourse, type CityCollider, type CityLayout, type GameMode, type NetState, type ServerMessage, type Vec3 } from '@game/shared';
 import type { Actor } from './Actor';
 import { Bot, type BotPattern } from './Bot';
 import type { Client } from './Client';
 import { Combat } from './Combat';
+import { Race } from './Race';
 
 /** Training dummies placed around the spawn point (offsets from spawn). */
 const TRAINING_BOTS: { name: string; offset: Vec3; pattern: BotPattern }[] = [
@@ -21,6 +22,8 @@ export class Room {
   readonly clients = new Map<string, Client>();
   readonly bots = new Map<string, Bot>();
   readonly combat: Combat;
+  /** Only in race mode. */
+  readonly race: Race | null = null;
 
   constructor(
     readonly name: string,
@@ -37,6 +40,9 @@ export class Room {
       collider,
       mode,
     );
+    if (mode === 'race') {
+      this.race = new Race({ players: () => this.clients.values(), broadcast: (m) => this.broadcast(m) }, raceCourse(city));
+    }
     if (mode === 'training') {
       TRAINING_BOTS.forEach((b, i) => {
         const id = `bot${i + 1}`;
@@ -88,6 +94,7 @@ export class Room {
   remove(client: Client, now: number): void {
     if (!this.clients.delete(client.id)) return;
     this.combat.removeActor(client, now);
+    this.race?.removeActor(client.id);
     this.broadcast({ t: 'leave', id: client.id });
   }
 
@@ -110,6 +117,7 @@ export class Room {
   tick(now: number, dt: number): void {
     for (const b of this.bots.values()) b.update(now, dt);
     this.combat.tick(now, dt);
+    this.race?.tick(now);
     const states: [string, number, NetState][] = [];
     for (const a of this.actors()) {
       if (a.state && a.stateDirty) {

@@ -9,6 +9,8 @@ import {
   encode,
   generateCity,
   parseServerMessage,
+  raceCourse,
+  RACE,
   type ClientMessage,
   type GameMode,
   type NetState,
@@ -417,5 +419,103 @@ describe('combat', () => {
     assert.equal(dmg.amount, 0);
     a.c.close();
     b.c.close();
+  });
+});
+
+// ---------------------------------------------------------------- race
+
+const course = raceCourse(generateCity(WORLD_SEED));
+const cps = course.checkpoints;
+/** Positions from a to b in steps short enough not to look like a teleport. */
+function pathBetween(a: Vec3, b: Vec3, step = 30): Vec3[] {
+  const d = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+  const n = Math.max(1, Math.ceil(d / step));
+  return Array.from({ length: n }, (_, i) => {
+    const u = (i + 1) / n;
+    return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u] as Vec3;
+  });
+}
+async function fly(c: TestClient, points: Vec3[]) {
+  for (const p of points) {
+    c.send({ t: 'state', s: { p, v: [0, 0, 0], y: 0, s: 1 } });
+    await sleep(12); // stay well under the rate limit
+  }
+}
+/** A point just before the start ring (so the next move passes through it). */
+const beforeStart: Vec3 = [cps[0][0], cps[0][1], cps[0][2] + 20];
+
+describe('race', () => {
+  it('the course loops and every ring is in open air', () => {
+    assert.ok(cps.length >= 10);
+    assert.deepEqual(cps[0], cps[cps.length - 1]);
+  });
+
+  it('a solo time trial: start ring starts the clock, every ring counts in order, finish records a best time', async () => {
+    const a = await join('Racer', 'race-1', 'race');
+    assert.equal(a.welcome.mode, 'race');
+    await fly(a.c, [beforeStart, cps[0]]);
+    const started = await a.c.waitFor('raceCp', (m) => m.cp === 0 && !m.group);
+    assert.equal(started.total, cps.length);
+    let pos = cps[0];
+    for (let i = 1; i < cps.length; i++) {
+      await fly(a.c, pathBetween(pos, cps[i]));
+      pos = cps[i];
+    }
+    const finish = await a.c.waitFor('raceCp', (m) => m.cp === cps.length - 1, 4000);
+    assert.ok(finish.time > 0);
+    const board = await a.c.waitFor('raceBoard', (m) => m.best.length > 0);
+    assert.equal(board.best[0][0], a.welcome.you.id);
+    a.c.close();
+  });
+
+  it('skipping a ring does not count, and teleports never pass rings', async () => {
+    const a = await join('Cutter', 'race-2', 'race');
+    await fly(a.c, [beforeStart, cps[0]]);
+    await a.c.waitFor('raceCp', (m) => m.cp === 0);
+    // Fly straight to ring 2, skipping ring 1.
+    await fly(a.c, pathBetween(cps[0], [cps[2][0] + 200, cps[2][1], cps[2][2]]));
+    // Teleport right onto ring 1 (respawn-style jump).
+    await fly(a.c, [cps[1]]);
+    await sleep(150);
+    assert.ok(!a.c.inbox.some((m) => m.t === 'raceCp' && m.cp > 0), 'no rings should count');
+    a.c.close();
+  });
+
+  it('a group race: countdown, nothing counts before GO, then finishing order', async () => {
+    const a = await join('Fast', 'race-3', 'race');
+    const b = await join('Slow', 'race-3', 'race');
+    await fly(a.c, [beforeStart]);
+    await fly(b.c, [beforeStart]);
+    a.c.send({ t: 'raceStart' });
+    const cd = await b.c.waitFor('race', (m) => m.phase === 'countdown');
+    assert.equal(cd.racers.length, 2);
+    // Jumping the gun: passing the start ring during the countdown doesn't count.
+    await fly(a.c, [cps[0], beforeStart]);
+    await sleep(100);
+    assert.ok(!a.c.inbox.some((m) => m.t === 'raceCp'));
+    await a.c.waitFor('race', (m) => m.phase === 'running', RACE.countdownMs + 1000);
+    // A finishes first, then B.
+    for (const c of [a.c, b.c]) {
+      let pos: Vec3 = beforeStart;
+      for (const cp of cps) {
+        await fly(c, pathBetween(pos, cp));
+        pos = cp;
+      }
+    }
+    const board = await a.c.waitFor('raceBoard', (m) => m.last.length === 2, 6000);
+    assert.deepEqual(board.last.map(([id]) => id), [a.welcome.you.id, b.welcome.you.id]);
+    await a.c.waitFor('race', (m) => m.phase === 'idle');
+    a.c.close();
+    b.c.close();
+  });
+
+  it('no web shots in race mode', async () => {
+    const a = await join('NoGuns', 'race-4', 'race');
+    a.c.send({ t: 'state', s: { p: at(0, 0, 0), v: [0, 0, 0], y: 0, s: 0 } });
+    await sleep(100);
+    a.c.send({ t: 'fire', o: at(0, 1.5, 0), d: [0, 0, -1], vt: 1e12, c: 1 });
+    await sleep(200);
+    assert.ok(!a.c.inbox.some((m) => m.t === 'shot'));
+    a.c.close();
   });
 });

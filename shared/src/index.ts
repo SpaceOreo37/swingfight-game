@@ -3,3 +3,4 @@ export * from './collision';
 export * from './city';
 export * from './constants';
 export * from './protocol';
+export * from './race';

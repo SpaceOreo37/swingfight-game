@@ -78,6 +78,14 @@
                 </span>
               </label>
               <label class="mode-card">
+                <input type="radio" name="mode" value="race" />
+                <span class="mode-body">
+                  <span class="mode-icon">🏁</span>
+                  <span class="mode-name">Race</span>
+                  <span class="mode-desc">Rings through the city. Beat the clock.</span>
+                </span>
+              </label>
+              <label class="mode-card">
                 <input type="radio" name="mode" value="tag" />
                 <span class="mode-body">
                   <span class="mode-icon">🏃</span>
@@ -102,6 +110,15 @@
                 <label><input type="radio" name="quality" value="high" checked /><span>High</span></label>
                 <label><input type="radio" name="quality" value="medium" /><span>Medium</span></label>
                 <label><input type="radio" name="quality" value="low" /><span>Low</span></label>
+              </div>
+            </div>
+            <div class="setting wide">
+              <span class="label">Time of day <em>live cycle is shared with everyone</em></span>
+              <div class="segmented">
+                <label><input type="radio" name="timeofday" value="cycle" checked /><span>Live cycle</span></label>
+                <label><input type="radio" name="timeofday" value="day" /><span>Day</span></label>
+                <label><input type="radio" name="timeofday" value="sunset" /><span>Sunset</span></label>
+                <label><input type="radio" name="timeofday" value="night" /><span>Night</span></label>
               </div>
             </div>
             <div class="setting">
@@ -136,6 +153,11 @@
     <div id="killfeed"></div>
     <div id="mode-badge" class="hidden"></div>
     <div id="tag-panel" class="hidden"></div>
+    <div id="race-panel" class="hidden">
+      <div id="race-timer">--:--.--</div>
+      <div id="race-info"></div>
+      <div id="race-board"></div>
+    </div>
     <div id="big-msg"></div>
     <div id="ko-screen" class="hidden"><div class="ko-title">KNOCKED OUT</div><div id="ko-text"></div></div>
     <div id="launch-cue" class="hidden">LAUNCH!</div>

@@ -19,7 +19,9 @@ A fast, physics-driven web-swinging game with online multiplayer: swing between 
 - **Parkour:** wall running and climbing, zip-to-point, charged launches, and bounces off walls.
 - **Online multiplayer:** make a room, send your friends a link, and play together from anywhere.
 - **Combat:** web shots, yanks, zip strikes, swing kicks, and a fatal yank-then-slam combo.
-- **Game modes:** free-roam Brawl, solo Training against dummies, and Tag.
+- **Game modes:** free-roam Brawl, solo Training against dummies, Tag, and Race (checkpoint rings through the city).
+- **Day and night:** a 20-minute day shared by everyone online, with sunsets, stars and the city lighting up after dark.
+- **An animated hero:** a jointed suited character that runs, swings, crawls up walls, zips, crouches and punches.
 - **First or third person,** with camera shake, speed lines and G-force camera lag.
 - **Rebindable controls,** saved in your browser.
 
@@ -58,7 +60,8 @@ These are the defaults. Change any of them under **Controls & key bindings** on 
 | **C** + **Left click** | Zip strike the player under the crosshair |
 | **Tab** | Thwip: a quick horizontal boost (10 m+ up, every 2.5 s) |
 | **V** | First / third person |
-| **R** | Respawn |
+| **[** | Respawn |
+| **G** | Race mode: start a race for everyone in the room |
 
 ### Tips
 
@@ -75,6 +78,7 @@ These are the defaults. Change any of them under **Controls & key bindings** on 
 | **Brawl** | The whole city, fighting on. 100 HP each, respawn 3 seconds after a knockout. |
 | **Training** | Practice alone against dummies that stand, walk and fly. |
 | **Tag** | No damage. If you're "it", hit someone to pass it on. Least time as "it" wins. |
+| **Race** | Fly through the gold ring to start a time trial, or press **G** to start a countdown race for everyone. The server checks every ring, and the room keeps a leaderboard. |
 
 Whoever opens a room picks its mode.
 
@@ -134,10 +138,10 @@ Tuning lives in `shared/src/constants.ts` (movement, swinging, camera) and `shar
 - [x] Online multiplayer with rooms
 - [x] Combat: Brawl, Training and Tag modes
 - [x] Home screen and rebindable controls
-- [ ] Race mode with checkpoint courses
+- [x] Race mode, day/night cycle, animated hero
 - [ ] Sound effects
 - [ ] Cutting other players' web lines
-- [ ] Real character models and animations
+- [ ] More race courses, and a downloadable character model
 
 ## Feedback
 

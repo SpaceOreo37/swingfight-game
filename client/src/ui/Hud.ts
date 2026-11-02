@@ -1,4 +1,5 @@
 import { Keybinds } from './Keybinds';
+import type { TimeOfDay } from '../game/DayNight';
 import type { GameMode } from '@game/shared';
 import { LAUNCH, launchPower } from '@game/shared';
 
@@ -9,6 +10,7 @@ const RAW_KEY = 'swingfight.rawMouse';
 const VIEW_KEY = 'swingfight.view';
 const ROOM_KEY = 'swingfight.room';
 const MODE_KEY = 'swingfight.mode';
+const TIME_KEY = 'swingfight.timeOfDay';
 
 export type Quality = 'high' | 'medium' | 'low';
 export type View = 'third' | 'first';
@@ -67,6 +69,7 @@ export class Hud {
   private readonly viewInput = new RadioGroup<View>('view');
   private readonly roomInput = document.getElementById('room-input') as HTMLInputElement;
   private readonly modeInput = new RadioGroup<GameMode>('mode');
+  private readonly timeInput = new RadioGroup<TimeOfDay>('timeofday');
   private readonly inviteBtn = document.getElementById('invite-btn') as HTMLButtonElement;
   private readonly kicker = document.getElementById('home-kicker')!;
   private readonly serverStatus = document.getElementById('server-status')!;
@@ -103,10 +106,12 @@ export class Hud {
     this.rawInput.checked = load(RAW_KEY) !== 'false';
     this.viewInput.value = load(VIEW_KEY) === 'first' ? 'first' : 'third';
     const mode = new URLSearchParams(location.search).get('mode') ?? load(MODE_KEY);
-    this.modeInput.value = mode === 'training' || mode === 'tag' ? mode : 'brawl';
+    this.modeInput.value = mode === 'training' || mode === 'tag' || mode === 'race' ? mode : 'brawl';
     // A ?room=xyz link pre-fills the room, so you can send friends a direct link.
     this.roomInput.value = new URLSearchParams(location.search).get('room') ?? load(ROOM_KEY) ?? '';
 
+    const tod = load(TIME_KEY);
+    this.timeInput.value = tod === 'day' || tod === 'sunset' || tod === 'night' ? tod : 'cycle';
     this.inviteBtn.addEventListener('click', () => this.copyInvite());
     new Keybinds(document.getElementById('keybinds')!, document.getElementById('controls')!);
     document.body.classList.add('at-home');
@@ -158,6 +163,20 @@ export class Hud {
   setView(view: View): void {
     this.viewInput.value = view;
     save(VIEW_KEY, view);
+  }
+
+  get timeOfDay(): TimeOfDay {
+    return this.timeInput.value || 'cycle';
+  }
+
+  /** Time of day changes apply immediately (you can watch the sky change behind the menu). */
+  onTimeOfDayChange(fn: (t: TimeOfDay) => void): void {
+    document.querySelectorAll<HTMLInputElement>('input[name="timeofday"]').forEach((el) =>
+      el.addEventListener('change', () => {
+        save(TIME_KEY, this.timeOfDay);
+        fn(this.timeOfDay);
+      }),
+    );
   }
 
   get view(): View {

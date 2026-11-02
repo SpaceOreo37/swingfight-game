@@ -179,6 +179,7 @@ export function startGameServer(opts: GameServerOptions): Promise<RunningServer>
       if (states.length) client.send({ t: 'snap', time: t, states });
       const tag = room.combat.tagSnapshot();
       if (tag) client.send(tag);
+      if (room.race) for (const m of room.race.snapshot()) client.send(m);
       log(`join   ${client.info.name} (${client.id}) room=${room.name} mode=${room.mode} players=${room.size}`);
       return;
     }
@@ -189,7 +190,13 @@ export function startGameServer(opts: GameServerOptions): Promise<RunningServer>
 
     if (msg.t === 'state') {
       if (!plausible(msg.s)) return;
+      const from = client.state ? client.state.p : null;
       client.recordState(msg.s, t);
+      room.race?.onMove(client, from, msg.s.p, t);
+      return;
+    }
+    if (msg.t === 'raceStart') {
+      room.race?.requestStart(t);
       return;
     }
     if (msg.t === 'event') {

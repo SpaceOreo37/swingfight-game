@@ -16,7 +16,7 @@ A fast, physics-driven web-swinging game with online multiplayer: swing between 
 
 - **Physics-based web swinging:** real momentum, a stretchy web, and release timing that matters. Chain swings to build speed, and let go at the right moment for a boost.
 - **A whole city to explore:** about 1.2 km² of island downtown with skyscraper districts, a central park, rooftops, water towers and street lights, all generated in code so it loads in seconds.
-- **Parkour:** wall running and climbing, zip-to-point, charged launches, and bounces off walls.
+- **Parkour:** wall running and climbing, zip-to-point, roof-edge launches, and bounces off walls.
 - **Online multiplayer:** make a room, send your friends a link, and play together from anywhere.
 - **Combat:** web shots, yanks, zip strikes, swing kicks, and a fatal yank-then-slam combo.
 - **Game modes:** free-roam Brawl, solo Training against dummies, Tag, and Race (checkpoint rings through the city).
@@ -56,7 +56,7 @@ These are the defaults. Change any of them under **Controls & key bindings** on 
 | **Right click** (hold, in the air) | Web swing to the ◆ marker. Let go to fly |
 | **Left click** (hold) | Web shots at the crosshair |
 | **E** | Yank the player under the crosshair to the floor |
-| **C** + **Right click** | On the ground: charge a launch (hold 3–4 s for max). In the air: zip to the marker |
+| **C** + **Right click** | Zip to the marker (on the ground or in the air) |
 | **C** + **Left click** | Zip strike the player under the crosshair |
 | **Tab** | Thwip: a quick horizontal boost (10 m+ up, every 2.5 s) |
 | **V** | First / third person |

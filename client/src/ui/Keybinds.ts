@@ -36,7 +36,7 @@ export class Keybinds {
     // Combos (not keys of their own): always shown with the current keys.
     const k = (a: Action) => `<kbd>${escapeHtml(bindingName(a))}</kbd>`;
     const combos: [string, string][] = [
-      [`${k('anchor')} + ${k('swing')}`, 'Ground: charge a launch (3–4 s = max) · Air: zip to the marker · Space mid-zip = launch / bounce'],
+      [`${k('anchor')} + ${k('swing')}`, 'Zip to the marker (ground or air) · Space mid-zip = launch / bounce'],
       [`${k('anchor')} + ${k('attack')}`, 'Zip strike · on a yanked player: fatal slam'],
       ['<kbd>Walls</kbd>', 'Run into one to stick · push in to climb · Jump to wall-jump'],
       ['<kbd>Fly into</kbd>', 'Swing kick (faster = harder)'],
@@ -65,7 +65,7 @@ export class Keybinds {
     this.hint.textContent =
       `${n('forward')}${n('left')}${n('back')}${n('right')} move · ${n('sprint')} sprint · ${n('jump')} jump · ` +
       `${n('swing')} swing · ${n('attack')} shoot · ${n('yank')} yank · ${n('anchor')}+${n('attack')} zip strike · ` +
-      `${n('anchor')}+${n('swing')} launch / zip · ${n('thwip')} thwip · ${n('view')} camera · ${n('respawn')} respawn · Esc menu`;
+      `${n('anchor')}+${n('swing')} zip · ${n('thwip')} thwip · ${n('view')} camera · ${n('respawn')} respawn · Esc menu`;
   }
 
   /** Wait for the next key or mouse button and bind it. */

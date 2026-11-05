@@ -70,10 +70,15 @@ export const COMBAT = {
   strikeRange: 4,
   strikeDamage: 30,
   strikeCooldownMs: 900,
-  /** Yank (E): range, damage, how long the target is downed (s), and the pull speeds (m/s). */
+  /**
+   * Yank (E): range, damage, and how long the target is downed (s). Downed
+   * players can't do anything, so the window is short: land the slam fast.
+   */
   yankRange: 45,
   yankDamage: 8,
-  yankDown: 3,
+  yankDown: 1.3,
+  /** After getting up you can't be yanked again for this long (ms), so nobody gets yank-locked. */
+  yankImmuneMs: 1500,
   /** The yank arc: lands them this far short of you, takes this long, using this gravity (m, s, m/s^2). */
   yankLandShort: 4,
   yankFlightTime: 0.55,
@@ -101,7 +106,7 @@ export interface HitFx {
   imp?: Vec3;
   /** Seconds slowed. */
   slow?: number;
-  /** Seconds downed (on the floor: slow, can't swing/zip/thwip). */
+  /** Seconds downed (on the floor: can't move, swing, shoot or attack). */
   down?: number;
 }
 

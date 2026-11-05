@@ -400,6 +400,36 @@ describe('combat', () => {
     b.c.close();
   });
 
+  it('a yanked player is helpless while down, and cannot be yank-locked', async () => {
+    const a = await join('Yanker', 'brawl-2', 'brawl');
+    const b = await join('Victim', 'brawl-2', 'brawl');
+    a.c.send({ t: 'state', s: { p: at(0, 0, 0), v: [0, 0, 0], y: 0, s: 0 } });
+    b.c.send({ t: 'state', s: { p: at(0, 0, -20), v: [0, 0, 0], y: 0, s: 0 } });
+    await sleep(COMBAT.spawnProtectSeconds * 1000 + 100);
+    b.c.send({ t: 'state', s: { p: at(0, 0, -20), v: [0, 0, 0], y: 0, s: 0 } });
+    await sleep(100);
+    a.c.send({ t: 'act', k: 'yank', target: b.welcome.you.id, vt: 1e12 });
+    await b.c.waitFor('dmg', (m) => m.kind === 'yank');
+    // While down: shots and attacks from the victim are ignored.
+    const o = at(0, 1.5, -20);
+    b.c.send({ t: 'fire', o, d: dirTo(o, at(0, 1.2, 0)), vt: 1e12, c: 1 });
+    b.c.send({ t: 'act', k: 'yank', target: a.welcome.you.id, vt: 1e12 });
+    // And yanking them again right away (after the yank cooldown) does nothing either.
+    await sleep(COMBAT.yankCooldownMs + 50);
+    a.c.send({ t: 'act', k: 'yank', target: b.welcome.you.id, vt: 1e12 });
+    await sleep(200);
+    assert.ok(!a.c.inbox.some((m) => m.t === 'dmg' && m.target === a.welcome.you.id), 'downed player hit back');
+    assert.equal(b.c.inbox.filter((m) => m.t === 'dmg' && m.kind === 'yank').length, 1, 'yanked twice in a row');
+    // Once up again, they can shoot.
+    await sleep(COMBAT.yankDown * 1000 + COMBAT.yankImmuneMs - COMBAT.yankCooldownMs);
+    b.c.send({ t: 'state', s: { p: at(0, 0, -20), v: [0, 0, 0], y: 0, s: 0 } });
+    await sleep(80);
+    b.c.send({ t: 'fire', o, d: dirTo(o, at(0, 1.2, 0)), vt: 1e12, c: 1 });
+    await a.c.waitFor('dmg', (m) => m.target === a.welcome.you.id && m.kind === 'shot');
+    a.c.close();
+    b.c.close();
+  });
+
   it('tag: a hit from "it" passes it on, with no damage', async () => {
     const a = await join('TagA', 'tag-1', 'tag');
     const b = await join('TagB', 'tag-1', 'tag');

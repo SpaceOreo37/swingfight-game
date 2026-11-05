@@ -143,14 +143,15 @@ export class CombatClient {
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
     this.yankCooldown = Math.max(0, this.yankCooldown - dt);
     const online = this.net.status === 'online';
-    const canAct = online && !this.player.frozen && this.mode !== 'race';
+    // Downed (yanked to the floor) = helpless until you get up.
+    const canAct = online && !this.player.frozen && this.player.downTime <= 0 && this.mode !== 'race';
 
     this.target = this.findTarget(camera);
     this.hud.setCrosshair(this.target !== null);
 
     if (canAct && input.fireHeld && this.fireCooldown === 0) this.fire(camera, hand);
     if (canAct && input.strikePressed && this.target) this.strike(this.target);
-    if (canAct && input.yankPressed && this.target && this.yankCooldown === 0) this.yank(this.target);
+    if (canAct && input.yankPressed && this.target && this.yankCooldown === 0 && this.target.downTime <= 0) this.yank(this.target);
     if (canAct) this.checkKicks();
 
     this.updateProjectiles();

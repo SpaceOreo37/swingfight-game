@@ -174,8 +174,8 @@ export class PlayerController {
     this.wallCooldown = Math.max(0, this.wallCooldown - dt);
     this.slowTime = Math.max(0, this.slowTime - dt);
     this.downTime = Math.max(0, this.downTime - dt);
-    // Knocked out: no input at all. Downed: can move (slowly) but no webs.
-    if (this.frozen) {
+    // Knocked out or downed (yanked to the floor): no input at all.
+    if (this.frozen || this.downTime > 0) {
       inp = { ...inp, moveX: 0, moveZ: 0, jumpPressed: false, swingHeld: false, swingPressed: false, thwipPressed: false, anchorHeld: false };
     }
     const noWebs = this.frozen || this.downTime > 0;
@@ -203,11 +203,9 @@ export class PlayerController {
     if (!inp.swingHeld) this.firePending = false;
     const airborne = this.state === 'air' || this.state === 'wall'; // you can swing off a wall
     if (this.firePending && this.hasTarget && inp.anchorHeld && this.state === 'ground') {
-      // C + web on the ground: plant the web and start charging a launch.
+      // C + web on the ground: zip to the point, same as in the air.
       this.firePending = false;
-      this.anchor.copy(this.target);
-      this.chargeTime = 0;
-      this.state = 'charge';
+      this.startZip();
     } else if (this.firePending && airborne && this.swingCooldown === 0 && this.hasTarget) {
       this.firePending = false;
       if (this.state === 'wall') this.wallCooldown = WALL.cooldown;

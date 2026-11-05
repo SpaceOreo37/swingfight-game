@@ -13,6 +13,24 @@ const _right = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 const _down = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2 * 0.92);
 
+/** Soft round glow texture, shared by every player's night halo. */
+let haloTexture: THREE.Texture | null = null;
+function getHaloTexture(): THREE.Texture {
+  if (haloTexture) return haloTexture;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.2, 'rgba(255,255,255,0.8)');
+  grad.addColorStop(0.5, 'rgba(255,255,255,0.25)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  haloTexture = new THREE.CanvasTexture(c);
+  return haloTexture;
+}
+
 /** Color roles baked into each vertex; recolored when the suit color changes. */
 const ROLE = { suit: 0, dark: 1, lens: 2, accent: 3 } as const;
 type Role = (typeof ROLE)[keyof typeof ROLE];
@@ -60,10 +78,34 @@ export class Avatar {
   private stride = 0;
   private time = Math.random() * 10;
   private crouch = 0;
+  /** Halo in the suit color so players stand out at night. */
+  private readonly halo = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: getHaloTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, opacity: 0 }),
+  );
 
-  constructor(color: number) {
+  /** How dark it is (0 = day, 1 = night). Set once per frame for every avatar. */
+  static nightGlow = 0;
+
+  constructor(color: number, private readonly haloStrength = 1) {
     this.body.position.y = -CENTER;
     this.root.add(this.body);
+    this.halo.visible = false;
+    // Grow with distance so far-off players stay visible (about the same size on screen).
+    this.halo.onBeforeRender = (_r, _s, camera) => {
+      const d = camera.position.distanceTo(this.root.position);
+      this.halo.scale.setScalar(Math.max(3.2, d * 0.07));
+      this.halo.updateMatrixWorld();
+    };
+    this.root.add(this.halo);
+    // Night glow follows each part's own color: suit glows, lenses shine, dark panels stay dark.
+    this.material.emissive.setRGB(1, 1, 1);
+    this.material.emissiveIntensity = 0;
+    this.material.onBeforeCompile = (shader) => {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <emissivemap_fragment>',
+        '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance *= vColor.rgb;',
+      );
+    };
     this.build();
     this.setColor(color);
   }
@@ -169,6 +211,7 @@ export class Avatar {
       }
       colors.needsUpdate = true;
     }
+    this.halo.material.color.copy(suit).lerp(new THREE.Color(0xffffff), 0.25);
   }
 
   /** World position of the right (web) hand / left (punch) hand. */
@@ -185,6 +228,11 @@ export class Avatar {
   update(p: AvatarPose, dt: number): void {
     this.time += dt;
     this.root.position.set(p.pos.x, p.pos.y + CENTER, p.pos.z);
+    // Night glow: the suit lights up a little and a soft halo shows from far away.
+    const glow = Avatar.nightGlow;
+    this.material.emissiveIntensity = glow * 0.4;
+    this.halo.visible = glow > 0.02;
+    this.halo.material.opacity = glow * 0.9 * this.haloStrength;
 
     // Whole-body orientation: wall = belly to the wall, swing = lean along
     // the web, downed = lying face down.

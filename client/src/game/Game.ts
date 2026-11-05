@@ -66,6 +66,7 @@ export class Game {
   private readonly combat: CombatClient;
   private readonly combatHud = new CombatHud();
   private readonly dayNight: DayNight;
+  private swingPressPending = false;
   private readonly race: RaceClient;
   private readonly shotHand = new THREE.Vector3();
   private readonly net: Network;
@@ -121,7 +122,7 @@ export class Game {
 
     this.player = new PlayerController(collider, this.city.halfX + 20, this.city.halfZ + 20);
     this.respawn();
-    this.avatar = new Avatar(0xd23a3a);
+    this.avatar = new Avatar(0xd23a3a, 0.35);
     this.scene.add(this.avatar.root, this.web.mesh, this.thwipWeb.mesh, this.zipWeb.mesh, this.marker.sprite);
 
     this.remotes = new RemotePlayers(this.scene);
@@ -306,6 +307,7 @@ export class Game {
     // Combat buttons: left-click shoots; C + left-click is a zip strike; E yanks.
     const anchorDown = input.down('anchor');
     const attackPressed = input.consume('attack');
+    const swingPressed = input.consume('swing');
     const combatInput = {
       fireHeld: input.down('attack') && !anchorDown,
       strikePressed: attackPressed && anchorDown,
@@ -319,6 +321,8 @@ export class Game {
     const fpAim = this.rig.mode === 'first';
     this.markerDir.copy(this.aimDir);
     this.accumulator += dt;
+    // Kept until a physics step uses it (some frames run no steps).
+    if (swingPressed) this.swingPressPending = true;
     while (this.accumulator >= FIXED_DT) {
       player.step(
         {
@@ -327,7 +331,7 @@ export class Game {
           sprint: input.down('sprint'),
           jumpPressed: input.consume('jump'),
           swingHeld: input.down('swing'),
-          swingPressed: input.consume('swing'),
+          swingPressed: this.swingPressPending,
           camYaw: this.rig.yaw,
           camPitch: this.rig.pitch,
           thwipPressed: input.consume('thwip'),
@@ -339,6 +343,7 @@ export class Game {
         FIXED_DT,
       );
       this.accumulator -= FIXED_DT;
+      this.swingPressPending = false;
     }
 
     // Safety net: if the physics ever produced an invalid number, respawn
@@ -437,6 +442,7 @@ export class Game {
 
     // Sun / moon / sky (shared clock when online, so everyone sees the same sky).
     this.dayNight.update(this.net.status === 'online' ? this.net.serverNow() : performance.now(), this.camera, this.renderPos);
+    Avatar.nightGlow = smooth01(1 - this.dayNight.daylight);
 
     this.sendNetwork(dt);
     this.remotes.update(this.net.serverNow(), dt, this.camera);
@@ -510,4 +516,10 @@ function releaseLabel(q: number): string {
   if (q >= 0.5) return 'good';
   if (q > 0) return 'ok';
   return '-';
+}
+
+/** 0..1 ease so the glow fades in during dusk rather than all at once. */
+function smooth01(x: number): number {
+  const t = Math.max(0, Math.min(1, x));
+  return t * t * (3 - 2 * t);
 }

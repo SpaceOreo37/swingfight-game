@@ -64,7 +64,7 @@ export class Combat {
   // ---------------------------------------------------------------- input
 
   fire(a: Actor & { shotsInFlight?: number }, m: Extract<ClientMessage, { t: 'fire' }>, now: number): void {
-    if (!this.combatAllowed || !isAlive(a, now) || !a.state) return;
+    if (!this.combatAllowed || !isAlive(a, now) || !a.state || a.downedUntil > now) return;
     if (now - (a.cooldowns.get('shot') ?? -Infinity) < COMBAT.shotCooldownMs * 0.8) return;
     if ((a.shotsInFlight ?? 0) >= COMBAT.maxShotsInFlight) return;
     // The shot has to start near the shooter's hands.
@@ -93,6 +93,8 @@ export class Combat {
     if (!this.combatAllowed) return;
     const target = this.host.find(m.target);
     if (!target || target === a || !isAlive(a, now) || !isAlive(target, now) || !a.state) return;
+    // Downed (yanked to the floor): no attacking back.
+    if (a.downedUntil > now) return;
     const at = clamp(m.vt, now - COMBAT.maxRewindMs, now);
     const tp = positionAt(target, at);
     if (!tp) return;
@@ -124,6 +126,8 @@ export class Combat {
     }
     if (m.k === 'yank') {
       if (dist > COMBAT.yankRange + 2) return;
+      // Already down, or just got up: can't be yanked again yet.
+      if (target.downedUntil + COMBAT.yankImmuneMs > now) return;
       // Need a clear line between the two (no yanking through buildings).
       const from: Vec3 = [ap[0], ap[1] + CHEST, ap[2]];
       const to: Vec3 = [tp[0], tp[1] + CHEST, tp[2]];

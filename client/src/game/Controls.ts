@@ -14,7 +14,7 @@ export const ACTIONS = {
   sprint: { label: 'Sprint', keys: ['ShiftLeft', 'ShiftRight'] },
   jump: { label: 'Jump', keys: ['Space'] },
   swing: { label: 'Web swing (hold, in the air)', keys: ['Mouse2'] },
-  anchor: { label: 'Anchor (hold for launch / zip / strike)', keys: ['KeyC'] },
+  anchor: { label: 'Anchor (hold for zip / strike)', keys: ['KeyC'] },
   thwip: { label: 'Thwip (10 m+ up)', keys: ['Tab'] },
   attack: { label: 'Web shot', keys: ['Mouse0'] },
   yank: { label: 'Yank', keys: ['KeyE'] },
